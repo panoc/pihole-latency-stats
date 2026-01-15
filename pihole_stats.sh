@@ -34,6 +34,7 @@ TIME_LABEL="All Time"
 # Flags to control logic
 MODE="DEFAULT"   # Options: DEFAULT, UPSTREAM, PIHOLE
 EXCLUDE_NX=false # If true, removes status 16/17
+OUTPUT_FILE=""   # File to save results to
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -47,6 +48,15 @@ while [[ $# -gt 0 ]]; do
             ;;
         -nx)
             EXCLUDE_NX=true
+            shift
+            ;;
+        -f)
+            shift
+            if [ -z "$1" ]; then
+                echo "Error: -f requires a filename."
+                exit 1
+            fi
+            OUTPUT_FILE="$1"
             shift
             ;;
         -*)
@@ -119,63 +129,70 @@ if ! command -v sqlite3 &> /dev/null; then
     exit 1
 fi
 
-echo "========================================================"
-echo "      Pi-hole Latency Analysis"
-echo "========================================================"
-echo "Time Period : $TIME_LABEL"
-echo "Query Mode  : $MODE_LABEL"
-echo "--------------------------------------------------------"
+# --- 4. MAIN GENERATION FUNCTION ---
+# We wrap the output logic in a function so we can pipe it to a file later if needed
+generate_report() {
+    
+    CURRENT_DATE=$(date "+%Y-%m-%d %H:%M:%S")
 
-# --- 4. SORT VARIABLES ---
-raw_limits=("$L01" "$L02" "$L03" "$L04" "$L05" "$L06" "$L07" "$L08" "$L09" "$L10" \
-            "$L11" "$L12" "$L13" "$L14" "$L15" "$L16" "$L17" "$L18" "$L19" "$L20")
+    echo "========================================================"
+    echo "      Pi-hole Latency Analysis"
+    echo "========================================================"
+    echo "Analysis Date : $CURRENT_DATE"
+    echo "Time Period   : $TIME_LABEL"
+    echo "Query Mode    : $MODE_LABEL"
+    echo "--------------------------------------------------------"
 
-IFS=$'\n' sorted_limits=($(printf "%s\n" "${raw_limits[@]}" | grep -v '^$' | sort -n))
-unset IFS
+    # --- SORT VARIABLES ---
+    raw_limits=("$L01" "$L02" "$L03" "$L04" "$L05" "$L06" "$L07" "$L08" "$L09" "$L10" \
+                "$L11" "$L12" "$L13" "$L14" "$L15" "$L16" "$L17" "$L18" "$L19" "$L20")
 
-# --- 5. DYNAMIC SQL GENERATION ---
-sql_case_columns=""
-sql_select_rows=""
-prev_limit_ms="0"
-prev_limit_sec="0"
-tier_index=0
-declare -a labels
+    IFS=$'\n' sorted_limits=($(printf "%s\n" "${raw_limits[@]}" | grep -v '^$' | sort -n))
+    unset IFS
 
-for limit_ms in "${sorted_limits[@]}"; do
-    limit_sec=$(awk "BEGIN {print $limit_ms / 1000}")
+    # --- DYNAMIC SQL GENERATION ---
+    sql_case_columns=""
+    sql_select_rows=""
+    prev_limit_ms="0"
+    prev_limit_sec="0"
+    tier_index=0
+    declare -a labels
 
-    if [ "$tier_index" -eq 0 ]; then
-        labels[$tier_index]="Tier ${tier_index} (< ${limit_ms}ms)"
-        sql_logic="reply_time <= $limit_sec"
-    else
-        labels[$tier_index]="Tier ${tier_index} (${prev_limit_ms} - ${limit_ms}ms)"
-        sql_logic="reply_time > $prev_limit_sec AND reply_time <= $limit_sec"
-    fi
+    for limit_ms in "${sorted_limits[@]}"; do
+        limit_sec=$(awk "BEGIN {print $limit_ms / 1000}")
 
-    sql_case_columns="${sql_case_columns} SUM(CASE WHEN ${sql_logic} THEN 1 ELSE 0 END) as t${tier_index},"
-    prev_limit_ms="$limit_ms"
-    prev_limit_sec="$limit_sec"
-    ((tier_index++))
-done
+        if [ "$tier_index" -eq 0 ]; then
+            labels[$tier_index]="Tier ${tier_index} (< ${limit_ms}ms)"
+            sql_logic="reply_time <= $limit_sec"
+        else
+            labels[$tier_index]="Tier ${tier_index} (${prev_limit_ms} - ${limit_ms}ms)"
+            sql_logic="reply_time > $prev_limit_sec AND reply_time <= $limit_sec"
+        fi
 
-labels[$tier_index]="Tier ${tier_index} (> ${prev_limit_ms}ms)"
-sql_case_columns="${sql_case_columns} SUM(CASE WHEN reply_time > $prev_limit_sec THEN 1 ELSE 0 END) as t${tier_index}"
+        sql_case_columns="${sql_case_columns} SUM(CASE WHEN ${sql_logic} THEN 1 ELSE 0 END) as t${tier_index},"
+        prev_limit_ms="$limit_ms"
+        prev_limit_sec="$limit_sec"
+        ((tier_index++))
+    done
 
-# --- 6. CALCULATE ALIGNMENT ---
-max_len=0
-for lbl in "${labels[@]}"; do
-    len=${#lbl}
-    if [ $len -gt $max_len ]; then max_len=$len; fi
-done
-max_len=$((max_len + 2))
+    labels[$tier_index]="Tier ${tier_index} (> ${prev_limit_ms}ms)"
+    sql_case_columns="${sql_case_columns} SUM(CASE WHEN reply_time > $prev_limit_sec THEN 1 ELSE 0 END) as t${tier_index}"
 
-# --- 7. BUILD OUTPUT ROWS ---
-for i in "${!labels[@]}"; do
-    sql_select_rows="${sql_select_rows} SELECT printf(\"%-${max_len}s : \", \"${labels[$i]}\") || printf(\"%6.2f%%\", (t${i} * 100.0 / analyzed_count)) || \"  (\" || t${i} || \")\" FROM tiers;"
-done
+    # --- CALCULATE ALIGNMENT ---
+    max_len=0
+    for lbl in "${labels[@]}"; do
+        len=${#lbl}
+        if [ $len -gt $max_len ]; then max_len=$len; fi
+    done
+    max_len=$((max_len + 2))
 
-# --- 8. RUN SQL ---
-sqlite3 "$DBfile" <<EOF
+    # --- BUILD OUTPUT ROWS ---
+    for i in "${!labels[@]}"; do
+        sql_select_rows="${sql_select_rows} SELECT printf(\"%-${max_len}s : \", \"${labels[$i]}\") || printf(\"%6.2f%%\", (t${i} * 100.0 / analyzed_count)) || \"  (\" || t${i} || \")\" FROM tiers;"
+    done
+
+    # --- RUN SQL ---
+    sqlite3 "$DBfile" <<EOF
 .mode column
 .headers off
 
@@ -232,3 +249,13 @@ DROP TABLE stats;
 DROP TABLE math_check;
 DROP TABLE tiers;
 EOF
+}
+
+# --- 5. EXECUTION ---
+# If Output File is set, pipe output to tee (screen + file). Otherwise just run.
+if [ -n "$OUTPUT_FILE" ]; then
+    generate_report | tee "$OUTPUT_FILE"
+    echo "Results saved to: $OUTPUT_FILE"
+else
+    generate_report
+fi
