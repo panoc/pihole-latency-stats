@@ -7,6 +7,7 @@ A lightweight Bash script to analyze your Pi-hole's DNS response times. It reads
 - **Time Filtering:** Analyze the last 24h, 7d, or any custom duration.
 - **Query Modes:** Isolate **Upstream** (Internet) latency from **Local** (Pi-hole Cache) latency.
 - **Cleaner Data:** Option to exclude Upstream-Blocked (NXDOMAIN/0.0.0.0) queries from your stats.
+- **Export Results:** Save your report to a text file automatically.
 - **Detailed Stats:** Shows percentages and raw counts for blocked vs. allowed queries.
 - **Auto-Sorting:** No need to order your config variables; the script does it for you.
 
