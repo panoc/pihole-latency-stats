@@ -38,7 +38,7 @@ Run the script using `sudo` (required to read the Pi-hole database). You can mix
 ### Basic Usage
 
 
-# Analyze All Time (Default)
+**Analyze All Time (Default)**
 ```bash
 sudo ./pihole_stats.sh
 
