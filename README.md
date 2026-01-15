@@ -37,19 +37,23 @@ Run the script using `sudo` (required to read the Pi-hole database). You can mix
 
 ### Basic Usage
 
-```bash
+
 # Analyze All Time (Default)
+```bash
 sudo ./pihole_stats.sh
 
 ```
 
 ### Time Filtering
 
-```bash
 # Analyze Last 24 Hours
+```bash
 sudo ./pihole_stats.sh -24h
 
+```
+
 # Analyze Last 7 Days
+```bash
 sudo ./pihole_stats.sh -7d
 
 ```
@@ -58,8 +62,8 @@ sudo ./pihole_stats.sh -7d
 
 You can save the output to a file using the -f flag. The script will display the results on the screen AND write them to the file.
 
-```bash
 # Save the report to 'report.txt'
+```bash
 sudo ./pihole_stats.sh -24h -f report.txt
 ```
 
