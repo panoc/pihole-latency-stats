@@ -32,14 +32,10 @@ MIN_TIMESTAMP=0
 TIME_LABEL="All Time"
 
 if [ -n "$1" ]; then
-    # Remove the leading hyphen if user typed "-24h" -> "24h"
     INPUT="${1#-}"
-    
-    # Extract the unit (last character) and value (everything else)
     UNIT="${INPUT: -1}"
     VALUE="${INPUT:0:${#INPUT}-1}"
 
-    # Calculate the timestamp offset
     if [[ "$UNIT" == "h" ]]; then
         OFFSET=$((VALUE * 3600))
         TIME_LABEL="Last $VALUE Hours"
@@ -51,11 +47,9 @@ if [ -n "$1" ]; then
         exit 1
     fi
 
-    # Calculate the Cutoff Timestamp (Current Epoch - Offset)
     CURRENT_EPOCH=$(date +%s)
     MIN_TIMESTAMP=$((CURRENT_EPOCH - OFFSET))
 fi
-
 
 if ! command -v sqlite3 &> /dev/null; then
     echo "Error: sqlite3 is not installed. Please install it with: sudo apt install sqlite3"
@@ -149,6 +143,7 @@ SELECT "";
 SELECT "--- Latency Distribution of Normal Queries ---";
 
 $sql_select_rows
+SELECT "";
 
 DROP TABLE clean_data;
 DROP TABLE totals;
