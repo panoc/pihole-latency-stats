@@ -46,13 +46,13 @@ sudo ./pihole_stats.sh
 
 ### Time Filtering
 
-# Analyze Last 24 Hours
+**Analyze Last 24 Hours**
 ```bash
 sudo ./pihole_stats.sh -24h
 
 ```
 
-# Analyze Last 7 Days
+**Analyze Last 7 Days**
 ```bash
 sudo ./pihole_stats.sh -7d
 
@@ -62,7 +62,7 @@ sudo ./pihole_stats.sh -7d
 
 You can save the output to a file using the -f flag. The script will display the results on the screen AND write them to the file.
 
-# Save the report to 'report.txt'
+ **Save the report to 'report.txt'**
 ```bash
 sudo ./pihole_stats.sh -24h -f report.txt
 ```
