@@ -89,6 +89,12 @@ sudo ./pihole_stats.sh -pi -30d
 
 ```
 
+## Understanding the Metrics
+
+* **Average:** The arithmetic mean. Useful, but often skewed by a few slow queries.
+* **Median (P50):** The "Middle" query. Represents your typical experience. If your cache hit rate is high, this will be near 0ms.
+* **95th Percentile (P95):** The "Realistic Worst Case." 95% of your queries are faster than this. This is the best metric to judge your actual internet speed, ignoring extreme outliers.
+
 ## Configuration
 
 Edit the top of the script (`pihole_stats.sh`) to change your latency tiers. You can enter them in any order; the script sorts them automatically.
