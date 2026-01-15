@@ -135,7 +135,7 @@ generate_report() {
     CURRENT_DATE=$(date "+%Y-%m-%d %H:%M:%S")
 
     echo "========================================================"
-    echo "               Pi-hole Latency Analysis"
+    echo "      Pi-hole Latency Analysis"
     echo "========================================================"
     echo "Analysis Date : $CURRENT_DATE"
     echo "Time Period   : $TIME_LABEL"
@@ -215,8 +215,7 @@ CREATE TEMP TABLE stats AS
         SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_STATUS_FILTER THEN reply_time ELSE 0.0 END) as total_duration
     FROM raw_data;
 
-/* 3. MEDIAN CALCULATION (Approximation using ORDER BY and LIMIT) */
-/* We create a temp table of just the analyzed reply times, ordered */
+/* 3. ORDERED DATA FOR MEDIAN & P95 */
 CREATE TEMP TABLE analyzed_times AS
     SELECT reply_time 
     FROM raw_data 
@@ -247,13 +246,18 @@ SELECT "Other/Ignored Queries : " || ignored_count || " (" || printf("%.1f", (ig
 
 SELECT "Analyzed Queries      : " || analyzed_count || " (" || printf("%.1f", (analyzed_count * 100.0 / valid_count)) || "%)" FROM math_check;
 
-/* Show Average Response Time (Converted to ms) */
+/* Show Average Response Time */
 SELECT "Average Latency       : " || printf("%.2f ms", (total_duration * 1000.0 / analyzed_count)) FROM math_check WHERE analyzed_count > 0;
 
-/* Show Median Response Time */
+/* Show Median Response Time (P50) */
 SELECT "Median  Latency       : " || printf("%.2f ms", (reply_time * 1000.0)) 
 FROM analyzed_times 
 LIMIT 1 OFFSET (SELECT (COUNT(*) - 1) / 2 FROM analyzed_times);
+
+/* Show 95th Percentile (P95) */
+SELECT "95th Percentile       : " || printf("%.2f ms", (reply_time * 1000.0)) 
+FROM analyzed_times 
+LIMIT 1 OFFSET (SELECT CAST((COUNT(*) * 0.95) - 1 AS INT) FROM analyzed_times);
 
 SELECT "";
 SELECT "--- Latency Distribution of Analyzed Queries ---";
