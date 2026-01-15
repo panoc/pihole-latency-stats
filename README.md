@@ -18,7 +18,7 @@ A lightweight Bash script to analyze your Pi-hole's DNS response times. It reads
 ```
 
 2. Run it (requires sudo to read the Pi-hole DB):
-```bash
+
 # Analyze All Time
 sudo ./pihole_stats.sh
 
@@ -28,7 +28,7 @@ sudo ./pihole_stats.sh -24h
 # Analyze Last 7 Days
 sudo ./pihole_stats.sh -7d
 
-```
+
 
 
 
