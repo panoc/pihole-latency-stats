@@ -29,10 +29,10 @@ A lightweight Bash script to analyze your Pi-hole's DNS response times. It reads
 sudo ./pihole_stats.sh
 
 ### Analyze Last 24 Hours
-sudo ./pihole_stats.sh -24h
+sudo ./pihole_stats.sh -24h (You can use any number of hours)
 
 ### Analyze Last 7 Days
-sudo ./pihole_stats.sh -7d
+sudo ./pihole_stats.sh -7d (You can use any number of days)
 
 
 
