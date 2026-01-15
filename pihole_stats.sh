@@ -130,7 +130,6 @@ if ! command -v sqlite3 &> /dev/null; then
 fi
 
 # --- 4. MAIN GENERATION FUNCTION ---
-# We wrap the output logic in a function so we can pipe it to a file later if needed
 generate_report() {
     
     CURRENT_DATE=$(date "+%Y-%m-%d %H:%M:%S")
@@ -211,13 +210,15 @@ CREATE TEMP TABLE stats AS
         /* Strict Blocked: Gravity, Regex, Blacklist Only */
         SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_BLOCKED_DEF THEN 1 ELSE 0 END) as blocked_count,
         /* Analyzed: Dependent on -up, -pi, and -nx flags */
-        SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_STATUS_FILTER THEN 1 ELSE 0 END) as analyzed_count
+        SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_STATUS_FILTER THEN 1 ELSE 0 END) as analyzed_count,
+        /* Total Duration: Sum of reply_time (seconds) for Analyzed queries only */
+        SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_STATUS_FILTER THEN reply_time ELSE 0.0 END) as total_duration
     FROM raw_data;
 
 /* 3. MATH CHECK */
 CREATE TEMP TABLE math_check AS
     SELECT 
-        total_queries, invalid_count, valid_count, blocked_count, analyzed_count,
+        total_queries, invalid_count, valid_count, blocked_count, analyzed_count, total_duration,
         (valid_count - blocked_count - analyzed_count) as ignored_count
     FROM stats;
 
@@ -237,6 +238,9 @@ SELECT "Blocked Queries       : " || blocked_count || " (" || printf("%.1f", (bl
 SELECT "Other/Ignored Queries : " || ignored_count || " (" || printf("%.1f", (ignored_count * 100.0 / valid_count)) || "%)" FROM math_check WHERE ignored_count > 0;
 
 SELECT "Analyzed Queries      : " || analyzed_count || " (" || printf("%.1f", (analyzed_count * 100.0 / valid_count)) || "%)" FROM math_check;
+
+/* Show Average Response Time (Converted to ms) */
+SELECT "Average Latency       : " || printf("%.2f ms", (total_duration * 1000.0 / analyzed_count)) FROM math_check WHERE analyzed_count > 0;
 
 SELECT "";
 SELECT "--- Latency Distribution of Analyzed Queries ---";
