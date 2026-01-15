@@ -53,6 +53,15 @@ sudo ./pihole_stats.sh -7d
 
 ```
 
+### Saving to File
+
+You can save the output to a file using the -f flag. The script will display the results on the screen AND write them to the file.
+
+```bash
+# Save the report to 'report.txt'
+sudo ./pihole_stats.sh -24h -f report.txt
+```
+
 ### Advanced Filtering (Modes & Flags)
 
 You can isolate specific types of queries to troubleshoot where latency is coming from.
@@ -67,8 +76,8 @@ You can isolate specific types of queries to troubleshoot where latency is comin
 # Check upstream latency for the last hour
 sudo ./pihole_stats.sh -up -1h
 
-# Check upstream latency, but ignore upstream blocks/NXDOMAIN
-sudo ./pihole_stats.sh -up -nx -24h
+# Check upstream latency, ignore upstream blocks, and save to file
+sudo ./pihole_stats.sh -up -nx -24h -f upstream_report.txt
 
 # Check cache performance for the last 30 days
 sudo ./pihole_stats.sh -pi -30d
