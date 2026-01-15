@@ -8,6 +8,8 @@ A lightweight Bash script to analyze your Pi-hole's DNS response times. It reads
 - **Detailed Stats:** Shows percentages and raw counts for blocked vs. allowed queries.
 - **Auto-Sorting:** No need to order your config variables; the script does it for you.
 
+- ![Pi-hole Stats Screenshot](pihole-latency-stats.png)
+
 ## Usage
 
 1. Download the script:
