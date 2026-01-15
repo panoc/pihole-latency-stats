@@ -27,27 +27,29 @@ L19=""
 L20=""
 # =================================================
 
-# --- 1. ARGUMENT PARSING (LOOP) ---
+# --- 1. ARGUMENT PARSING ---
 MIN_TIMESTAMP=0
 TIME_LABEL="All Time"
-MODE_LABEL="All Normal Queries (Upstream + Cache)"
-# Default SQL Filter: Forwarded (2) + Cached (3) + Retried/Optimized (12,13,14)
-SQL_STATUS_FILTER="status IN (2, 3, 12, 13, 14)"
+
+# Flags to control logic
+MODE="DEFAULT"   # Options: DEFAULT, UPSTREAM, PIHOLE
+EXCLUDE_NX=false # If true, removes status 16/17
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         -up)
-            MODE_LABEL="Upstream Only (Forwarded)"
-            SQL_STATUS_FILTER="status = 2"
-            shift # past argument
+            MODE="UPSTREAM"
+            shift 
             ;;
         -pi)
-            MODE_LABEL="Pi-hole Only (Cache & Optimizer)"
-            SQL_STATUS_FILTER="status IN (3, 12, 13, 14)"
-            shift # past argument
+            MODE="PIHOLE"
+            shift 
+            ;;
+        -nx)
+            EXCLUDE_NX=true
+            shift
             ;;
         -*)
-            # Handle Time Arguments (e.g., -24h, -7d)
             INPUT="${1#-}"
             UNIT="${INPUT: -1}"
             VALUE="${INPUT:0:${#INPUT}-1}"
@@ -64,10 +66,9 @@ while [[ $# -gt 0 ]]; do
                 MIN_TIMESTAMP=$((CURRENT_EPOCH - OFFSET))
             else
                 echo "Unknown argument: $1"
-                echo "Usage: sudo ./pihole_stats.sh [-24h] [-up|-pi]"
                 exit 1
             fi
-            shift # past argument
+            shift 
             ;;
         *)
             echo "Unknown option: $1"
@@ -76,6 +77,43 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# --- 2. CONSTRUCT SQL FILTERS BASED ON FLAGS ---
+
+# A. Strict Blocked Definition (Gravity, Regex, Blacklist)
+SQL_BLOCKED_DEF="status IN (1, 4, 5, 9, 10, 11)"
+
+# B. Build the Analysis Filter
+# Base Statuses (Without 16/17)
+BASE_DEFAULT="2, 3, 6, 7, 8, 12, 13, 14, 15"
+BASE_UPSTREAM="2, 6, 7, 8"
+BASE_PIHOLE="3, 12, 13, 14, 15"
+
+if [[ "$MODE" == "UPSTREAM" ]]; then
+    CURRENT_LIST="$BASE_UPSTREAM"
+    MODE_LABEL="Upstream Only (Forwarded)"
+elif [[ "$MODE" == "PIHOLE" ]]; then
+    CURRENT_LIST="$BASE_PIHOLE"
+    MODE_LABEL="Pi-hole Only (Cache & Optimizer)"
+else
+    CURRENT_LIST="$BASE_DEFAULT"
+    MODE_LABEL="All Normal Queries (Upstream + Cache)"
+fi
+
+# C. Handle -nx Logic (Include or Exclude 16/17)
+if [ "$EXCLUDE_NX" = true ]; then
+    # Do NOT add 16/17. They will be ignored.
+    MODE_LABEL="$MODE_LABEL [Excl. Upstream Blocks]"
+    SQL_STATUS_FILTER="status IN ($CURRENT_LIST)"
+else
+    # ADD 16/17 to the list (unless we are in Pi-hole mode where they don't apply)
+    if [[ "$MODE" != "PIHOLE" ]]; then
+        SQL_STATUS_FILTER="status IN ($CURRENT_LIST, 16, 17)"
+    else
+        SQL_STATUS_FILTER="status IN ($CURRENT_LIST)"
+    fi
+fi
+
+# --- 3. CHECK REQUIREMENTS ---
 if ! command -v sqlite3 &> /dev/null; then
     echo "Error: sqlite3 is not installed. Please install it with: sudo apt install sqlite3"
     exit 1
@@ -88,14 +126,14 @@ echo "Time Period : $TIME_LABEL"
 echo "Query Mode  : $MODE_LABEL"
 echo "--------------------------------------------------------"
 
-# --- 2. SORT VARIABLES ---
+# --- 4. SORT VARIABLES ---
 raw_limits=("$L01" "$L02" "$L03" "$L04" "$L05" "$L06" "$L07" "$L08" "$L09" "$L10" \
             "$L11" "$L12" "$L13" "$L14" "$L15" "$L16" "$L17" "$L18" "$L19" "$L20")
 
 IFS=$'\n' sorted_limits=($(printf "%s\n" "${raw_limits[@]}" | grep -v '^$' | sort -n))
 unset IFS
 
-# --- 3. DYNAMIC SQL GENERATION ---
+# --- 5. DYNAMIC SQL GENERATION ---
 sql_case_columns=""
 sql_select_rows=""
 prev_limit_ms="0"
@@ -115,7 +153,6 @@ for limit_ms in "${sorted_limits[@]}"; do
     fi
 
     sql_case_columns="${sql_case_columns} SUM(CASE WHEN ${sql_logic} THEN 1 ELSE 0 END) as t${tier_index},"
-    
     prev_limit_ms="$limit_ms"
     prev_limit_sec="$limit_sec"
     ((tier_index++))
@@ -124,7 +161,7 @@ done
 labels[$tier_index]="Tier ${tier_index} (> ${prev_limit_ms}ms)"
 sql_case_columns="${sql_case_columns} SUM(CASE WHEN reply_time > $prev_limit_sec THEN 1 ELSE 0 END) as t${tier_index}"
 
-# --- 4. CALCULATE ALIGNMENT ---
+# --- 6. CALCULATE ALIGNMENT ---
 max_len=0
 for lbl in "${labels[@]}"; do
     len=${#lbl}
@@ -132,47 +169,66 @@ for lbl in "${labels[@]}"; do
 done
 max_len=$((max_len + 2))
 
-# --- 5. BUILD OUTPUT ROWS ---
+# --- 7. BUILD OUTPUT ROWS ---
 for i in "${!labels[@]}"; do
-    sql_select_rows="${sql_select_rows} SELECT printf(\"%-${max_len}s : \", \"${labels[$i]}\") || printf(\"%6.2f%%\", (t${i} * 100.0 / normal_count)) || \"  (\" || t${i} || \")\" FROM tiers;"
+    sql_select_rows="${sql_select_rows} SELECT printf(\"%-${max_len}s : \", \"${labels[$i]}\") || printf(\"%6.2f%%\", (t${i} * 100.0 / analyzed_count)) || \"  (\" || t${i} || \")\" FROM tiers;"
 done
 
-# --- 6. RUN SQL ---
+# --- 8. RUN SQL ---
 sqlite3 "$DBfile" <<EOF
 .mode column
 .headers off
 
-/* 1. FILTER DATA (Time & Status Mode) */
-CREATE TEMP TABLE clean_data AS
+/* 1. RAW DATA FETCH */
+CREATE TEMP TABLE raw_data AS
     SELECT status, reply_time 
     FROM queries 
-    WHERE reply_time IS NOT NULL
-    AND timestamp >= $MIN_TIMESTAMP; 
+    WHERE timestamp >= $MIN_TIMESTAMP; 
 
-CREATE TEMP TABLE totals AS
+/* 2. STATS CALCULATION */
+CREATE TEMP TABLE stats AS
     SELECT 
         COUNT(*) as total_queries,
-        SUM(CASE WHEN status IN (1, 4, 5, 6, 7, 8, 9, 10, 11) THEN 1 ELSE 0 END) as blocked_count,
-        /* The 'Normal' count now depends on the user flag (-up or -pi) */
-        SUM(CASE WHEN $SQL_STATUS_FILTER THEN 1 ELSE 0 END) as normal_count
-    FROM clean_data;
+        SUM(CASE WHEN reply_time IS NULL THEN 1 ELSE 0 END) as invalid_count,
+        SUM(CASE WHEN reply_time IS NOT NULL THEN 1 ELSE 0 END) as valid_count,
+        /* Strict Blocked: Gravity, Regex, Blacklist Only */
+        SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_BLOCKED_DEF THEN 1 ELSE 0 END) as blocked_count,
+        /* Analyzed: Dependent on -up, -pi, and -nx flags */
+        SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_STATUS_FILTER THEN 1 ELSE 0 END) as analyzed_count
+    FROM raw_data;
 
+/* 3. MATH CHECK */
+CREATE TEMP TABLE math_check AS
+    SELECT 
+        total_queries, invalid_count, valid_count, blocked_count, analyzed_count,
+        (valid_count - blocked_count - analyzed_count) as ignored_count
+    FROM stats;
+
+/* 4. TIERS CALCULATION */
 CREATE TEMP TABLE tiers AS
-    SELECT normal_count, $sql_case_columns
-    FROM clean_data, totals
-    WHERE $SQL_STATUS_FILTER;
+    SELECT analyzed_count, $sql_case_columns
+    FROM raw_data, stats
+    WHERE reply_time IS NOT NULL AND $SQL_STATUS_FILTER;
 
-SELECT "Total Valid Queries   : " || total_queries FROM totals;
-SELECT "Blocked Queries       : " || blocked_count || " (" || printf("%.1f", (blocked_count * 100.0 / total_queries)) || "%)" FROM totals;
-SELECT "Analyzed Queries      : " || normal_count || " (" || printf("%.1f", (normal_count * 100.0 / total_queries)) || "%)" FROM totals;
+/* 5. DISPLAY OUTPUT */
+SELECT "Total Queries         : " || total_queries FROM math_check;
+SELECT "Unsuccessful Queries  : " || invalid_count || " (" || printf("%.1f", (invalid_count * 100.0 / total_queries)) || "%)" FROM math_check;
+SELECT "Total Valid Queries   : " || valid_count FROM math_check;
+SELECT "Blocked Queries       : " || blocked_count || " (" || printf("%.1f", (blocked_count * 100.0 / valid_count)) || "%)" FROM math_check;
+
+/* Only show Ignored if significant */
+SELECT "Other/Ignored Queries : " || ignored_count || " (" || printf("%.1f", (ignored_count * 100.0 / valid_count)) || "%)" FROM math_check WHERE ignored_count > 0;
+
+SELECT "Analyzed Queries      : " || analyzed_count || " (" || printf("%.1f", (analyzed_count * 100.0 / valid_count)) || "%)" FROM math_check;
 
 SELECT "";
-SELECT "--- Latency Distribution of Selected Queries ---";
+SELECT "--- Latency Distribution of Analyzed Queries ---";
 
 $sql_select_rows
 SELECT "";
 
-DROP TABLE clean_data;
-DROP TABLE totals;
+DROP TABLE raw_data;
+DROP TABLE stats;
+DROP TABLE math_check;
 DROP TABLE tiers;
 EOF
