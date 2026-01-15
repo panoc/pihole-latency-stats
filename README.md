@@ -9,7 +9,7 @@ A lightweight Bash script to analyze your Pi-hole's DNS response times. It reads
 - **Auto-Sorting:** No need to order your config variables; the script does it for you.
   
 <p align="center">
-![Pi-hole Stats Screenshot](pihole-latency-stats.png)
+  <img src="pihole-latency-stats.png" alt="Pi-hole Stats Screenshot">
 </p>
 
 ## Usage
