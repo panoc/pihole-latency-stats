@@ -6,6 +6,7 @@ A lightweight Bash script to analyze your Pi-hole's DNS response times. It reads
 - **Dynamic Tiers:** Define your own latency buckets (e.g., <1ms, 1-10ms, >100ms).
 - **Time Filtering:** Analyze the last 24h, 7d, or any custom duration.
 - **Query Modes:** Isolate **Upstream** (Internet) latency from **Local** (Pi-hole Cache) latency.
+- **Cleaner Data:** Option to exclude Upstream-Blocked (NXDOMAIN/0.0.0.0) queries from your stats.
 - **Detailed Stats:** Shows percentages and raw counts for blocked vs. allowed queries.
 - **Auto-Sorting:** No need to order your config variables; the script does it for you.
 
@@ -16,8 +17,8 @@ A lightweight Bash script to analyze your Pi-hole's DNS response times. It reads
 ## Installation
 
 1. Download the script:
- ```bash
-wget -O pihole_stats.sh https://raw.githubusercontent.com/panoc/pihole-latency-stats/main/pihole_stats.sh
+   ```bash
+   wget -O pihole_stats.sh [https://raw.githubusercontent.com/panoc/pihole-latency-stats/main/pihole_stats.sh](https://raw.githubusercontent.com/panoc/pihole-latency-stats/main/pihole_stats.sh)
 
 ```
 
@@ -52,22 +53,25 @@ sudo ./pihole_stats.sh -7d
 
 ```
 
-### Advanced Filtering (Modes)
+### Advanced Filtering (Modes & Flags)
 
 You can isolate specific types of queries to troubleshoot where latency is coming from.
 
 * **`-up` (Upstream Only):** Analyzes only queries forwarded to your upstream DNS (e.g., Google, Cloudflare). Use this to check your internet connection speed.
 * **`-pi` (Pi-hole Only):** Analyzes only queries answered by the Pi-hole Cache or Optimizers. Use this to check your Pi-hole hardware performance.
+* **`-nx` (Exclude Upstream Blocks):** Excludes queries that were blocked by the upstream provider (Status 16/17, e.g., NXDOMAIN or 0.0.0.0 replies). Use this if you only want to measure latency for *successful* resolutions.
+
+#### Examples
 
 ```bash
 # Check upstream latency for the last hour
 sudo ./pihole_stats.sh -up -1h
 
+# Check upstream latency, but ignore upstream blocks/NXDOMAIN
+sudo ./pihole_stats.sh -up -nx -24h
+
 # Check cache performance for the last 30 days
 sudo ./pihole_stats.sh -pi -30d
-
-# Check upstream performance (All Time)
-sudo ./pihole_stats.sh -up
 
 ```
 
@@ -81,6 +85,3 @@ L02="50"     # 50 ms
 L03="100"    # 100 ms
 ...
 
-
-
-```
