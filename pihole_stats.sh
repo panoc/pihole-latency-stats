@@ -135,7 +135,7 @@ generate_report() {
     CURRENT_DATE=$(date "+%Y-%m-%d %H:%M:%S")
 
     echo "========================================================"
-    echo "              Pi-hole Latency Analysis"
+    echo "               Pi-hole Latency Analysis"
     echo "========================================================"
     echo "Analysis Date : $CURRENT_DATE"
     echo "Time Period   : $TIME_LABEL"
@@ -215,20 +215,28 @@ CREATE TEMP TABLE stats AS
         SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_STATUS_FILTER THEN reply_time ELSE 0.0 END) as total_duration
     FROM raw_data;
 
-/* 3. MATH CHECK */
+/* 3. MEDIAN CALCULATION (Approximation using ORDER BY and LIMIT) */
+/* We create a temp table of just the analyzed reply times, ordered */
+CREATE TEMP TABLE analyzed_times AS
+    SELECT reply_time 
+    FROM raw_data 
+    WHERE reply_time IS NOT NULL AND $SQL_STATUS_FILTER
+    ORDER BY reply_time ASC;
+
+/* 4. MATH CHECK */
 CREATE TEMP TABLE math_check AS
     SELECT 
         total_queries, invalid_count, valid_count, blocked_count, analyzed_count, total_duration,
         (valid_count - blocked_count - analyzed_count) as ignored_count
     FROM stats;
 
-/* 4. TIERS CALCULATION */
+/* 5. TIERS CALCULATION */
 CREATE TEMP TABLE tiers AS
     SELECT analyzed_count, $sql_case_columns
     FROM raw_data, stats
     WHERE reply_time IS NOT NULL AND $SQL_STATUS_FILTER;
 
-/* 5. DISPLAY OUTPUT */
+/* 6. DISPLAY OUTPUT */
 SELECT "Total Queries         : " || total_queries FROM math_check;
 SELECT "Unsuccessful Queries  : " || invalid_count || " (" || printf("%.1f", (invalid_count * 100.0 / total_queries)) || "%)" FROM math_check;
 SELECT "Total Valid Queries   : " || valid_count FROM math_check;
@@ -242,6 +250,11 @@ SELECT "Analyzed Queries      : " || analyzed_count || " (" || printf("%.1f", (a
 /* Show Average Response Time (Converted to ms) */
 SELECT "Average Latency       : " || printf("%.2f ms", (total_duration * 1000.0 / analyzed_count)) FROM math_check WHERE analyzed_count > 0;
 
+/* Show Median Response Time */
+SELECT "Median  Latency       : " || printf("%.2f ms", (reply_time * 1000.0)) 
+FROM analyzed_times 
+LIMIT 1 OFFSET (SELECT (COUNT(*) - 1) / 2 FROM analyzed_times);
+
 SELECT "";
 SELECT "--- Latency Distribution of Analyzed Queries ---";
 
@@ -252,6 +265,7 @@ DROP TABLE raw_data;
 DROP TABLE stats;
 DROP TABLE math_check;
 DROP TABLE tiers;
+DROP TABLE analyzed_times;
 EOF
 }
 
