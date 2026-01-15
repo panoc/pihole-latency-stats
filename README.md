@@ -11,7 +11,7 @@ A lightweight Bash script to analyze your Pi-hole's DNS response times. It reads
 ## Usage
 
 1. Download the script:
-   ```bash
+```
    wget [https://raw.githubusercontent.com/YOUR_USERNAME/pihole-latency-stats/main/pihole_stats.sh](https://raw.githubusercontent.com/YOUR_USERNAME/pihole-latency-stats/main/pihole_stats.sh)
    chmod +x pihole_stats.sh
 
