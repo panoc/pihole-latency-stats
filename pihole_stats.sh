@@ -135,7 +135,7 @@ generate_report() {
     CURRENT_DATE=$(date "+%Y-%m-%d %H:%M:%S")
 
     echo "========================================================"
-    echo "      Pi-hole Latency Analysis"
+    echo "              Pi-hole Latency Analysis"
     echo "========================================================"
     echo "Analysis Date : $CURRENT_DATE"
     echo "Time Period   : $TIME_LABEL"
