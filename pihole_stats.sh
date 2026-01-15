@@ -27,29 +27,54 @@ L19=""
 L20=""
 # =================================================
 
-# --- 1. ARGUMENT PARSING (TIME FILTER) ---
+# --- 1. ARGUMENT PARSING (LOOP) ---
 MIN_TIMESTAMP=0
 TIME_LABEL="All Time"
+MODE_LABEL="All Normal Queries (Upstream + Cache)"
+# Default SQL Filter: Forwarded (2) + Cached (3) + Retried/Optimized (12,13,14)
+SQL_STATUS_FILTER="status IN (2, 3, 12, 13, 14)"
 
-if [ -n "$1" ]; then
-    INPUT="${1#-}"
-    UNIT="${INPUT: -1}"
-    VALUE="${INPUT:0:${#INPUT}-1}"
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -up)
+            MODE_LABEL="Upstream Only (Forwarded)"
+            SQL_STATUS_FILTER="status = 2"
+            shift # past argument
+            ;;
+        -pi)
+            MODE_LABEL="Pi-hole Only (Cache & Optimizer)"
+            SQL_STATUS_FILTER="status IN (3, 12, 13, 14)"
+            shift # past argument
+            ;;
+        -*)
+            # Handle Time Arguments (e.g., -24h, -7d)
+            INPUT="${1#-}"
+            UNIT="${INPUT: -1}"
+            VALUE="${INPUT:0:${#INPUT}-1}"
 
-    if [[ "$UNIT" == "h" ]]; then
-        OFFSET=$((VALUE * 3600))
-        TIME_LABEL="Last $VALUE Hours"
-    elif [[ "$UNIT" == "d" ]]; then
-        OFFSET=$((VALUE * 86400))
-        TIME_LABEL="Last $VALUE Days"
-    else
-        echo "Error: Invalid time format. Use -24h (hours) or -7d (days)."
-        exit 1
-    fi
-
-    CURRENT_EPOCH=$(date +%s)
-    MIN_TIMESTAMP=$((CURRENT_EPOCH - OFFSET))
-fi
+            if [[ "$UNIT" == "h" ]]; then
+                OFFSET=$((VALUE * 3600))
+                TIME_LABEL="Last $VALUE Hours"
+                CURRENT_EPOCH=$(date +%s)
+                MIN_TIMESTAMP=$((CURRENT_EPOCH - OFFSET))
+            elif [[ "$UNIT" == "d" ]]; then
+                OFFSET=$((VALUE * 86400))
+                TIME_LABEL="Last $VALUE Days"
+                CURRENT_EPOCH=$(date +%s)
+                MIN_TIMESTAMP=$((CURRENT_EPOCH - OFFSET))
+            else
+                echo "Unknown argument: $1"
+                echo "Usage: sudo ./pihole_stats.sh [-24h] [-up|-pi]"
+                exit 1
+            fi
+            shift # past argument
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
 
 if ! command -v sqlite3 &> /dev/null; then
     echo "Error: sqlite3 is not installed. Please install it with: sudo apt install sqlite3"
@@ -59,7 +84,8 @@ fi
 echo "========================================================"
 echo "      Pi-hole Latency Analysis"
 echo "========================================================"
-echo "Analyzing : $TIME_LABEL"
+echo "Time Period : $TIME_LABEL"
+echo "Query Mode  : $MODE_LABEL"
 echo "--------------------------------------------------------"
 
 # --- 2. SORT VARIABLES ---
@@ -116,7 +142,7 @@ sqlite3 "$DBfile" <<EOF
 .mode column
 .headers off
 
-/* 1. FILTER DATA BY TIME HERE */
+/* 1. FILTER DATA (Time & Status Mode) */
 CREATE TEMP TABLE clean_data AS
     SELECT status, reply_time 
     FROM queries 
@@ -127,20 +153,21 @@ CREATE TEMP TABLE totals AS
     SELECT 
         COUNT(*) as total_queries,
         SUM(CASE WHEN status IN (1, 4, 5, 6, 7, 8, 9, 10, 11) THEN 1 ELSE 0 END) as blocked_count,
-        SUM(CASE WHEN status NOT IN (1, 4, 5, 6, 7, 8, 9, 10, 11) THEN 1 ELSE 0 END) as normal_count
+        /* The 'Normal' count now depends on the user flag (-up or -pi) */
+        SUM(CASE WHEN $SQL_STATUS_FILTER THEN 1 ELSE 0 END) as normal_count
     FROM clean_data;
 
 CREATE TEMP TABLE tiers AS
     SELECT normal_count, $sql_case_columns
     FROM clean_data, totals
-    WHERE status NOT IN (1, 4, 5, 6, 7, 8, 9, 10, 11);
+    WHERE $SQL_STATUS_FILTER;
 
 SELECT "Total Valid Queries   : " || total_queries FROM totals;
 SELECT "Blocked Queries       : " || blocked_count || " (" || printf("%.1f", (blocked_count * 100.0 / total_queries)) || "%)" FROM totals;
-SELECT "Normal Queries        : " || normal_count || " (" || printf("%.1f", (normal_count * 100.0 / total_queries)) || "%)" FROM totals;
+SELECT "Analyzed Queries      : " || normal_count || " (" || printf("%.1f", (normal_count * 100.0 / total_queries)) || "%)" FROM totals;
 
 SELECT "";
-SELECT "--- Latency Distribution of Normal Queries ---";
+SELECT "--- Latency Distribution of Selected Queries ---";
 
 $sql_select_rows
 SELECT "";
