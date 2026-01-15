@@ -21,7 +21,6 @@ A lightweight Bash script to analyze your Pi-hole's DNS response times. It reads
 
 ```
    chmod +x pihole_stats.sh
-
 ```
 
 2. Run it (requires sudo to read the Pi-hole DB):
