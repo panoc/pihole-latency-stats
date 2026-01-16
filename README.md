@@ -7,7 +7,9 @@ A lightweight Bash script to analyze your Pi-hole's DNS response times. It reads
 - **Time Filtering:** Analyze the last 24h, 7d, or any custom duration.
 - **Smart Metrics:** Automatically calculates **Average**, **Median**, and **95th Percentile** latency.
 - **JSON Output:** Export data in raw JSON format for dashboards (Home Assistant, Node-RED, etc.).
-- **Domain Filtering:** Isolate stats for a specific domain (e.g., `google.com`) to check if a specific site is slow.
+- **Domain Filtering:** Two modes to analyze specific sites:
+  - **Partial Match:** Search for any domain containing a string (e.g., "google").
+  - **Exact Match:** Analyze a specific domain and its subdomains only (e.g., "google.com").
 - **Sequential Saving:** Automatically number your saved reports (e.g., `report_1.txt`, `report_2.txt`) to prevent accidental overwrites.
 - **External Configuration:** All settings (latency tiers, save paths) are stored in a separate `pihole_stats.conf` file, making script updates easy.
 - **Query Modes:** Isolate **Upstream** (Internet) latency from **Local** (Pi-hole Cache) latency.
@@ -109,21 +111,30 @@ sudo ./pihole_stats.sh -j -f stats.json
 
 ### Domain Filtering
 
-Use `-dm` or `--domain` to analyze latency for a specific domain. The script uses partial matching, so `google` will match `www.google.com`, `maps.google.com`, etc.
+Use these flags to analyze latency for specific websites.
 
-**Check latency for Google services only**
+* **`-dm` or `--domain` (Partial Match):**
+Matches any query containing the string. Useful for broad searches.
+* *Example:* `-dm google` finds `google.com`, `google.gr`, `google-analytics.com`, `googleapis.com`.
+
 
 ```bash
 sudo ./pihole_stats.sh -dm google
 
 ```
 
-**Check latency for a specific site over the last hour**
+
+* **`-edm` or `--exact-domain` (Exact Match):**
+Matches the exact domain and its subdomains only. Useful for specific site analysis without "noise."
+* *Example:* `-edm google.com` finds `google.com` and `www.google.com`, but **ignores** `google.gr` or `google-analytics.com`.
+
 
 ```bash
-sudo ./pihole_stats.sh -dm netflix.com -1h
+sudo ./pihole_stats.sh -edm netflix.com
 
 ```
+
+
 
 ### Advanced Filtering (Modes & Flags)
 
@@ -163,11 +174,13 @@ On the first run, the script creates a file named `pihole_stats.conf` in the sam
 3. **Set Database Path:** Permanently override the default `/etc/pihole/pihole-FTL.db` location.
 
 ```bash
-# Example pihole_stats.conf
+# Example pihole_stats.conf content
 
+# Where to save files by default
 SAVE_DIR="/home/pi/pihole_reports"
+
+# Your custom latency buckets
 L01="0.5"
 L02="20"
 ...
-
 
