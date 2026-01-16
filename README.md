@@ -7,7 +7,9 @@ A lightweight Bash script to analyze your Pi-hole's DNS response times. It reads
 - **Time Filtering:** Analyze the last 24h, 7d, or any custom duration.
 - **Smart Metrics:** Automatically calculates **Average**, **Median**, and **95th Percentile** latency.
 - **JSON Output:** Export data in raw JSON format for dashboards (Home Assistant, Node-RED, etc.).
-- **Domain Filtering:** Two modes to analyze specific sites (Partial Match vs. Exact Match).
+- **Domain Filtering:** Supports **Wildcards** (`*`, `?`) with two modes:
+  - **Partial Match:** Search for any domain containing a pattern.
+  - **Exact Match:** Analyze a specific domain pattern and its subdomains only.
 - **Sequential Saving:** Automatically number your saved reports (e.g., `report_1.txt`) to prevent overwrites.
 - **Flexible Paths:** Load configurations and save reports to **any folder** on your system.
 - **Query Modes:** Isolate **Upstream** (Internet) latency from **Local** (Pi-hole Cache) latency.
@@ -45,7 +47,7 @@ sudo ./pihole_stats.sh
 
 Run the script using `sudo` (required to read the Pi-hole database). You can mix and match arguments in any order.
 
-> **Tip:** If your file paths or filenames contain spaces, wrap them in quotes (e.g., `-f "My Report.txt"`).
+> **Tip:** If your file paths contain spaces or your domain patterns contain wildcards (e.g., `*`), **always wrap them in quotes** (e.g., `-dm "*.google.com"`).
 
 ### Basic Usage
 
@@ -135,26 +137,29 @@ sudo ./pihole_stats.sh -j -f stats.json
 
 ### Domain Filtering
 
-Use these flags to analyze latency for specific websites.
+Use these flags to analyze latency for specific websites. Both flags support **Wildcards**:
 
+* `*` matches any number of characters.
+* `?` matches exactly one character.
 * **`-dm` or `--domain` (Partial Match):**
-Matches any query containing the string. Useful for broad searches.
-* *Example:* `-dm google` finds `google.com`, `google.gr`, `google-analytics.com`, `googleapis.com`.
+Matches any query *containing* the pattern. Useful for broad searches.
+* *Example:* `-dm "goo*le"` finds `google.com`, `goooogle.gr`, `good-letters.com`.
 
 
 ```bash
-sudo ./pihole_stats.sh -dm google
+sudo ./pihole_stats.sh -dm "google"
 
 ```
 
 
 * **`-edm` or `--exact-domain` (Exact Match):**
-Matches the exact domain and its subdomains only. Useful for specific site analysis without "noise."
-* *Example:* `-edm google.com` finds `google.com` and `www.google.com`, but **ignores** `google.gr` or `google-analytics.com`.
+Matches the exact domain pattern and its subdomains, but respects the structure.
+* *Example:* `-edm "fr*z.com"` finds `fritz.com` and `fraz.com`.
+* *Example:* `-edm "*.google.com"` finds `maps.google.com` but ignores `google.com.badsite.net`.
 
 
 ```bash
-sudo ./pihole_stats.sh -edm netflix.com
+sudo ./pihole_stats.sh -edm "netflix.com"
 
 ```
 
