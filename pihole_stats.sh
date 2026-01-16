@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION="2.0"
+VERSION="2.2"
 
 # --- 1. SETUP & DEFAULTS ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
@@ -9,6 +9,8 @@ CONFIG_TO_LOAD="$DEFAULT_CONFIG"
 # Default Internal Values
 DBfile="/etc/pihole/pihole-FTL.db"
 SAVE_DIR=""
+CONFIG_ARGS=""
+
 # Default Tiers
 L01="0.009"; L02="0.1"; L03="1"; L04="10"; L05="50"
 L06="100"; L07="300"; L08="1000"
@@ -25,6 +27,13 @@ create_config() {
 # ================= PI-HOLE STATS CONFIGURATION =================
 DBfile="/etc/pihole/pihole-FTL.db"
 SAVE_DIR=""
+
+# [OPTIONAL] Default Arguments
+# If set, these arguments will REPLACE any CLI flags.
+# Example: CONFIG_ARGS="-up -24h -j -f stats.json"
+CONFIG_ARGS=""
+
+# Latency Tiers (Upper Limits in Milliseconds)
 L01="0.009"
 L02="0.1"
 L03="1"
@@ -51,6 +60,7 @@ EOF
 }
 
 # --- 3. PRE-SCAN FLAGS ---
+# We scan for -c or -mc first to load the correct environment.
 args_preserve=("$@") 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -59,49 +69,41 @@ while [[ $# -gt 0 ]]; do
         *) shift ;;
     esac
 done
-set -- "${args_preserve[@]}"
 
-# --- 4. LOAD CONFIG ---
-if [ -f "$CONFIG_TO_LOAD" ]; then source "$CONFIG_TO_LOAD"
+# --- 4. LOAD CONFIG & APPLY PROFILE ---
+if [ -f "$CONFIG_TO_LOAD" ]; then 
+    source "$CONFIG_TO_LOAD"
 elif [ "$CONFIG_TO_LOAD" == "$DEFAULT_CONFIG" ]; then
     create_config "$DEFAULT_CONFIG" > /dev/null; source "$DEFAULT_CONFIG"
-else echo "Error: Config not found: $CONFIG_TO_LOAD"; exit 1; fi
+else 
+    echo "Error: Config not found: $CONFIG_TO_LOAD"; exit 1; 
+fi
 
-# --- 5. HELP FUNCTION ---
+# [NEW] Profile Enforcement Logic
+# If the config file contains CONFIG_ARGS, we discard the original CLI args
+# and replace them with the ones from the file.
+if [ -n "$CONFIG_ARGS" ]; then
+    # eval is used here to correctly interpret quotes inside the string
+    # e.g., CONFIG_ARGS="-f 'My File.txt'" needs to be split correctly.
+    eval set -- "$CONFIG_ARGS"
+else
+    # Restore original args if no profile is forced
+    set -- "${args_preserve[@]}"
+fi
+
+# --- 5. HELP ---
 show_help() {
     echo "Pi-hole Latency Analysis v$VERSION"
     echo "Usage: sudo ./pihole_stats.sh [OPTIONS]"
-    echo ""
-    echo "  -- CONFIGURATION --"
-    echo "  -c <file>          : Load a specific config file (Default: pihole_stats.conf)."
-    echo "  -mc <file>         : Make (Generate) a new config file and exit."
-    echo "  -db <path>         : Override Database path."
-    echo ""
-    echo "  -- TIME FILTERING --"
-    echo "  -24h, -7d, -1h     : Analyze the last X hours (h) or days (d)."
-    echo "                       (Default: All Time)"
-    echo ""
-    echo "  -- FILTERING MODES --"
-    echo "  -up                : Upstream Only (Forwarded queries)."
-    echo "  -pi                : Pi-hole Only (Cache & Local)."
-    echo "  -nx                : Exclude Upstream Blocks (NXDOMAIN/0.0.0.0)."
-    echo "  -dm <string>       : Domain Partial Match (Supports * and ? wildcards)."
-    echo "                       Example: -dm \"goo*le\" finds google.com, goooogle.gr"
-    echo "  -edm <domain>      : Domain Exact Match (Supports * and ? wildcards)."
-    echo "                       Example: -edm \"fr*z.com\" finds fritz.com, fraz.com"
-    echo ""
-    echo "  -- OUTPUT OPTIONS --"
-    echo "  -f <filename>      : Save results to a file."
-    echo "  -j, --json         : Output in JSON format."
-    echo "  -seq               : Sequential naming (report_1.txt) to prevent overwrites."
-    echo "  -ts, --timestamp   : Add timestamp to filename (report_2026-01-16.txt)."
-    echo ""
-    echo "  -- OTHER --"
-    echo "  -h, --help         : Show this help message."
-    echo ""
-    echo "  * TIP: If your file paths or search patterns contain spaces or wildcards,"
-    echo "    wrap them in quotes. Example: -dm \"*.google.com\""
-    echo ""
+    echo "  -24h, -7d        : Time filter"
+    echo "  -up, -pi, -nx    : Query modes (Upstream/Pihole/NoBlock)"
+    echo "  -dm, -edm        : Domain filter (Partial/Exact)"
+    echo "  -f <file>        : Save to file"
+    echo "  -j               : Enable JSON output"
+    echo "  -s, --silent     : No screen output (for cron)"
+    echo "  -seq, -ts        : Naming (Sequential/Timestamp)"
+    echo "  -c, -mc          : Config (Load/Make)"
+    echo "  -db              : Custom DB path"
     exit 0
 }
 
@@ -112,6 +114,7 @@ MODE="DEFAULT"
 EXCLUDE_NX=false
 OUTPUT_FILE=""
 JSON_OUTPUT=false
+SILENT_MODE=false
 DOMAIN_FILTER=""
 SQL_DOMAIN_CLAUSE=""
 SEQUENTIAL=false
@@ -120,11 +123,12 @@ ADD_TIMESTAMP=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         -h|--help) show_help ;;
-        -c|--config|-mc|--make-config) shift; shift ;;
+        -c|--config|-mc|--make-config) shift; shift ;; # Already handled
         -up) MODE="UPSTREAM"; shift ;;
         -pi) MODE="PIHOLE"; shift ;;
         -nx) EXCLUDE_NX=true; shift ;;
         -j|--json) JSON_OUTPUT=true; shift ;;
+        -s|--silent) SILENT_MODE=true; shift ;;
         -seq) SEQUENTIAL=true; shift ;;
         -ts|--timestamp) ADD_TIMESTAMP=true; shift ;;
         -db) shift; DBfile="$1"; shift ;;
@@ -213,17 +217,16 @@ generate_report() {
         [ -z "$sql_json_rows" ] && sql_json_rows="$this_json" || sql_json_rows="${sql_json_rows} UNION ALL SELECT ',' UNION ALL $this_json"
     done
 
-    # --- SQL OUTPUT SELECTORS ---
-    if [ "$JSON_OUTPUT" = false ]; then
-        echo "========================================================="
-        echo "              Pi-hole Latency Analysis v$VERSION"
-        echo "========================================================="
-        echo "Analysis Date : $CURRENT_DATE"
-        echo "Time Period   : $TIME_LABEL"
-        echo "Query Mode    : $MODE_LABEL"
-        echo "---------------------------------------------------------"
-        
-        OUTPUT_SQL="
+    # --- SQL BLOCK BUILDER ---
+    
+    TEXT_REPORT_SQL="
+        SELECT \"=========================================================\";
+        SELECT \"              Pi-hole Latency Analysis v$VERSION\";
+        SELECT \"=========================================================\";
+        SELECT \"Analysis Date : $CURRENT_DATE\";
+        SELECT \"Time Period   : $TIME_LABEL\";
+        SELECT \"Query Mode    : $MODE_LABEL\";
+        SELECT \"---------------------------------------------------------\";
         SELECT \"Total Queries         : \" || total_queries FROM combined_metrics;
         SELECT \"Unsuccessful Queries  : \" || invalid_count || \" (\" || printf(\"%.1f\", (invalid_count * 100.0 / total_queries)) || \"%) \" FROM combined_metrics;
         SELECT \"Total Valid Queries   : \" || valid_count FROM combined_metrics;
@@ -237,8 +240,11 @@ generate_report() {
         SELECT \"--- Latency Distribution of Analyzed Queries ---\";
         $sql_text_rows
         SELECT \"\";"
-    else
-        OUTPUT_SQL="
+
+    JSON_REPORT_SQL=""
+    if [ "$JSON_OUTPUT" = true ]; then
+        JSON_REPORT_SQL="
+        SELECT '___JSON_START___';
         SELECT '{' ||
             '\"version\": \"$VERSION\", ' ||
             '\"date\": \"$CURRENT_DATE\", ' ||
@@ -259,10 +265,11 @@ generate_report() {
             '\"tiers\": [' 
         FROM combined_metrics;
         $sql_json_rows ; 
-        SELECT ']}' ;"
+        SELECT ']}' ;
+        SELECT '___JSON_END___';"
     fi
 
-    # --- OPTIMIZED SQL EXECUTION ---
+    # --- EXECUTE ---
     sqlite3 "$DBfile" <<EOF
 .mode list
 .headers off
@@ -271,40 +278,26 @@ PRAGMA temp_store = MEMORY;
 PRAGMA journal_mode = OFF;
 PRAGMA synchronous = OFF;
 
-/* 1. FILTER */
-CREATE TEMP TABLE raw_data AS
-    SELECT status, reply_time 
-    FROM queries 
-    WHERE timestamp >= $MIN_TIMESTAMP $SQL_DOMAIN_CLAUSE; 
-
-/* 2. AGGREGATE */
+CREATE TEMP TABLE raw_data AS SELECT status, reply_time FROM queries WHERE timestamp >= $MIN_TIMESTAMP $SQL_DOMAIN_CLAUSE; 
 CREATE TEMP TABLE combined_metrics AS
-    SELECT 
-        COUNT(*) as total_queries,
+    SELECT COUNT(*) as total_queries,
         SUM(CASE WHEN reply_time IS NULL THEN 1 ELSE 0 END) as invalid_count,
         SUM(CASE WHEN reply_time IS NOT NULL THEN 1 ELSE 0 END) as valid_count,
         SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_BLOCKED_DEF THEN 1 ELSE 0 END) as blocked_count,
         SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_STATUS_FILTER THEN 1 ELSE 0 END) as analyzed_count,
         SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_STATUS_FILTER THEN reply_time ELSE 0.0 END) as total_duration,
-        (SUM(CASE WHEN reply_time IS NOT NULL THEN 1 ELSE 0 END) - 
-         SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_BLOCKED_DEF THEN 1 ELSE 0 END) - 
-         SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_STATUS_FILTER THEN 1 ELSE 0 END)) as ignored_count,
+        (SUM(CASE WHEN reply_time IS NOT NULL THEN 1 ELSE 0 END) - SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_BLOCKED_DEF THEN 1 ELSE 0 END) - SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_STATUS_FILTER THEN 1 ELSE 0 END)) as ignored_count,
         $sql_tier_columns
     FROM raw_data;
-
-/* 3. SORT */
-CREATE TEMP TABLE analyzed_times AS
-    SELECT reply_time 
-    FROM raw_data 
-    WHERE reply_time IS NOT NULL AND $SQL_STATUS_FILTER
-    ORDER BY reply_time ASC;
+CREATE TEMP TABLE analyzed_times AS SELECT reply_time FROM raw_data WHERE reply_time IS NOT NULL AND $SQL_STATUS_FILTER ORDER BY reply_time ASC;
 
 .output stdout
-$OUTPUT_SQL
+$JSON_REPORT_SQL
+$TEXT_REPORT_SQL
 EOF
 }
 
-# --- 9. OUTPUT ---
+# --- 9. OUTPUT HANDLING ---
 if [ -n "$OUTPUT_FILE" ]; then
     [[ "$OUTPUT_FILE" != /* ]] && [ -n "$SAVE_DIR" ] && mkdir -p "$SAVE_DIR" && OUTPUT_FILE="${SAVE_DIR}/${OUTPUT_FILE}"
     [ "$ADD_TIMESTAMP" = true ] && TS=$(date "+%Y-%m-%d_%H%M") && OUTPUT_FILE="${OUTPUT_FILE%.*}_${TS}.${OUTPUT_FILE##*.}"
@@ -313,8 +306,37 @@ if [ -n "$OUTPUT_FILE" ]; then
         while [ -f "${BASE}_${CNT}.${EXT}" ]; do ((CNT++)); done
         OUTPUT_FILE="${BASE}_${CNT}.${EXT}"
     fi
-    generate_report | tee "$OUTPUT_FILE"
-    [ "$JSON_OUTPUT" = false ] && echo "Results saved to: $OUTPUT_FILE"
+fi
+
+FULL_OUTPUT=$(generate_report)
+
+if [ "$JSON_OUTPUT" = true ]; then
+    JSON_CONTENT=$(echo "$FULL_OUTPUT" | sed -n '/___JSON_START___/,/___JSON_END___/p' | grep -v "___JSON_")
+    TEXT_CONTENT=$(echo "$FULL_OUTPUT" | sed '/___JSON_START___/,/___JSON_END___/d')
 else
-    generate_report
+    JSON_CONTENT=""
+    TEXT_CONTENT="$FULL_OUTPUT"
+fi
+
+# FILE SAVING
+if [ -n "$OUTPUT_FILE" ]; then
+    if [ "$JSON_OUTPUT" = true ]; then
+        echo "$JSON_CONTENT" > "$OUTPUT_FILE"
+    else
+        echo "$TEXT_CONTENT" > "$OUTPUT_FILE"
+    fi
+    if [ "$SILENT_MODE" = false ]; then
+        echo "Results saved to: $OUTPUT_FILE"
+    fi
+fi
+
+# SCREEN DISPLAY
+if [ "$SILENT_MODE" = false ]; then
+    if [ -n "$OUTPUT_FILE" ] && [ "$JSON_OUTPUT" = true ]; then
+        echo "$TEXT_CONTENT"
+    elif [ -z "$OUTPUT_FILE" ] && [ "$JSON_OUTPUT" = true ]; then
+        echo "$JSON_CONTENT"
+    else
+        echo "$TEXT_CONTENT"
+    fi
 fi
