@@ -72,32 +72,14 @@ sudo ./pihole_stats.sh -7d
 
 ```
 
-### Saving to File & Sequential Numbering
+### Saving Output (Files & Logs)
 
-You can save the output to a file using the `-f` flag.
+You can save the output to a file using the `-f` flag. You can also add timestamps or sequential numbering to organize your logs.
 
-**Save to 'report.txt' (Overwrites if exists)**
+**Basic Save (Overwrites if exists)**
 
 ```bash
 sudo ./pihole_stats.sh -24h -f report.txt
-
-```
-
-**Safe Save (Sequential)**
-Use the `-seq` flag to automatically add a number if the file already exists (e.g., `report_1.txt`, `report_2.txt`). Great for cron jobs.
-
-```bash
-sudo ./pihole_stats.sh -24h -f report.txt -seq
-
-```
-
-### Saving to File & Timestamps
-
-You can save the output to a file using the `-f` flag.
-
-**Basic Save (Overwrites if exists)**
-```bash
-sudo ./pihole_stats.sh -f report.txt
 
 ```
 
@@ -122,10 +104,6 @@ sudo ./pihole_stats.sh -f daily_log.json -ts -seq
 ```
 
 * Result: `daily_log_2026-01-16_0930_1.json`
-
-```
-
-```
 
 ### JSON Output (Automation)
 
