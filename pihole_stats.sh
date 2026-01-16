@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION="1.7"
+VERSION="1.8"
 
 # --- 1. SETUP & DEFAULTS ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
@@ -59,7 +59,6 @@ EOF
 }
 
 # --- 3. PRE-SCAN FOR CONFIG FLAGS ---
-# We scan arguments early to handle -c (Load) and -mc (Make) before anything else.
 args_preserve=("$@") 
 
 while [[ $# -gt 0 ]]; do
@@ -89,7 +88,6 @@ set -- "${args_preserve[@]}"
 if [ -f "$CONFIG_TO_LOAD" ]; then
     source "$CONFIG_TO_LOAD"
 elif [ "$CONFIG_TO_LOAD" == "$DEFAULT_CONFIG" ]; then
-    # If default is missing, create it automatically (First Run experience)
     create_config "$DEFAULT_CONFIG" > /dev/null
     source "$DEFAULT_CONFIG"
 else
@@ -115,8 +113,10 @@ show_help() {
     echo "  -up                : Upstream Only (Forwarded queries)."
     echo "  -pi                : Pi-hole Only (Cache & Local)."
     echo "  -nx                : Exclude Upstream Blocks (NXDOMAIN/0.0.0.0)."
-    echo "  -dm <string>       : Domain Partial Match (e.g. 'google' finds google.com, google.gr)."
-    echo "  -edm <domain>      : Domain Exact Match (e.g. 'google.com' only)."
+    echo "  -dm <string>       : Domain Partial Match (Supports * and ? wildcards)."
+    echo "                       Example: -dm \"goo*le\" finds google.com, goooogle.gr"
+    echo "  -edm <domain>      : Domain Exact Match (Supports * and ? wildcards)."
+    echo "                       Example: -edm \"fr*z.com\" finds fritz.com, fraz.com"
     echo ""
     echo "  -- OUTPUT OPTIONS --"
     echo "  -f <filename>      : Save results to a file."
@@ -127,8 +127,8 @@ show_help() {
     echo "  -- OTHER --"
     echo "  -h, --help         : Show this help message."
     echo ""
-    echo "  * TIP: If your file paths contain spaces, wrap them in quotes."
-    echo "    Example: -f \"/home/pi/My Logs/report.txt\""
+    echo "  * TIP: If your file paths or search patterns contain spaces or wildcards,"
+    echo "    wrap them in quotes. Example: -dm \"*.google.com\""
     echo ""
     exit 0
 }
@@ -149,7 +149,6 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         -h|--help) show_help ;;
         
-        # Already handled in pre-scan, just skip them here
         -c|--config|-mc|--make-config) shift; shift ;;
         
         -up) MODE="UPSTREAM"; shift ;;
@@ -162,17 +161,28 @@ while [[ $# -gt 0 ]]; do
         
         -dm|--domain)
             shift
-            if [ -z "$1" ]; then echo "Error: -dm requires a domain name."; exit 1; fi
-            DOMAIN_FILTER="$1"
+            if [ -z "$1" ]; then echo "Error: -dm requires a domain pattern."; exit 1; fi
+            # Replace shell wildcards with SQL wildcards
+            RAW_INPUT="$1"
+            SANITIZED="${RAW_INPUT//\*/%}"
+            SANITIZED="${SANITIZED//\?/_}"
+            DOMAIN_FILTER="$SANITIZED"
+            
             SQL_DOMAIN_CLAUSE="AND domain LIKE '%$DOMAIN_FILTER%'"
             shift
             ;;
             
         -edm|--exact-domain)
             shift
-            if [ -z "$1" ]; then echo "Error: -edm requires a specific domain."; exit 1; fi
-            DOMAIN_FILTER="$1"
-            SQL_DOMAIN_CLAUSE="AND (domain = '$DOMAIN_FILTER' OR domain LIKE '%.$DOMAIN_FILTER')"
+            if [ -z "$1" ]; then echo "Error: -edm requires a specific domain pattern."; exit 1; fi
+            # Replace shell wildcards with SQL wildcards
+            RAW_INPUT="$1"
+            SANITIZED="${RAW_INPUT//\*/%}"
+            SANITIZED="${SANITIZED//\?/_}"
+            DOMAIN_FILTER="$SANITIZED"
+            
+            # Use LIKE for both clauses to support the wildcards
+            SQL_DOMAIN_CLAUSE="AND (domain LIKE '$DOMAIN_FILTER' OR domain LIKE '%.$DOMAIN_FILTER')"
             shift
             ;;
 
@@ -225,7 +235,7 @@ else
 fi
 
 if [ -n "$DOMAIN_FILTER" ]; then
-    MODE_LABEL="$MODE_LABEL [Domain: $DOMAIN_FILTER]"
+    MODE_LABEL="$MODE_LABEL [Domain: $RAW_INPUT]"
 fi
 
 if ! command -v sqlite3 &> /dev/null; then
