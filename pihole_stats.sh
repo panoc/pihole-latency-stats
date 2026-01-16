@@ -60,9 +60,7 @@ EOF
 
 # --- 3. PRE-SCAN FOR CONFIG FLAGS ---
 # We scan arguments early to handle -c (Load) and -mc (Make) before anything else.
-# This ensures config settings are loaded BEFORE other flags might override them.
-
-args_preserve=("$@") # Keep original arguments safe
+args_preserve=("$@") 
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -89,14 +87,12 @@ set -- "${args_preserve[@]}"
 
 # --- 4. LOAD CONFIGURATION ---
 if [ -f "$CONFIG_TO_LOAD" ]; then
-    # Source the requested config
     source "$CONFIG_TO_LOAD"
 elif [ "$CONFIG_TO_LOAD" == "$DEFAULT_CONFIG" ]; then
     # If default is missing, create it automatically (First Run experience)
     create_config "$DEFAULT_CONFIG" > /dev/null
     source "$DEFAULT_CONFIG"
 else
-    # User requested a custom config (-c) but it doesn't exist
     echo "Error: Configuration file not found: $CONFIG_TO_LOAD"
     exit 1
 fi
@@ -131,12 +127,9 @@ show_help() {
     echo "  -- OTHER --"
     echo "  -h, --help         : Show this help message."
     echo ""
-    echo "Examples:"
-    echo "  # Create a new config for Google stats"
-    echo "  sudo ./pihole_stats.sh -mc stats_google.conf"
+    echo "  * TIP: If your file paths contain spaces, wrap them in quotes."
+    echo "    Example: -f \"/home/pi/My Logs/report.txt\""
     echo ""
-    echo "  # Run using that config"
-    echo "  sudo ./pihole_stats.sh -c stats_google.conf -up -24h"
     exit 0
 }
 
