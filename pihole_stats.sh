@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION="2.0"
+VERSION="1.8"
 
 # --- 1. CONFIGURATION MANAGEMENT ---
 # Determine the directory where this script is located
@@ -237,13 +237,13 @@ generate_report() {
     
     # 1. HEADERS (Bash side)
     if [ "$JSON_OUTPUT" = false ]; then
-        echo "========================================================="
+        echo "=========================================================="
         echo "              Pi-hole Latency Analysis v$VERSION"
-        echo "========================================================="
+        echo "=========================================================="
         echo "Analysis Date : $CURRENT_DATE"
         echo "Time Period   : $TIME_LABEL"
         echo "Query Mode    : $MODE_LABEL"
-        echo "---------------------------------------------------------"
+        echo "----------------------------------------------------------"
     fi
 
     # 2. SQL QUERY CONSTRUCTION
