@@ -239,11 +239,38 @@ sudo ./pihole_stats.sh -db /mnt/user/appdata/pihole/pihole-FTL.db
 
 ```
 
+### Auto-Delete Old Logs (Retention Policy)
+
+You can configure the script to automatically delete report files that are older than a certain number of days. This keeps your log folder from growing indefinitely.
+
+**Method 1: Configuration File (Recommended)**
+Edit your `pihole_stats.conf` and set the days:
+
+```bash
+# Delete files in SAVE_DIR older than 30 days
+MAX_LOG_AGE="30"
+
+```
+
+**Method 2: CLI Override**
+Run a one-off cleanup command:
+
+```bash
+# Run the report and delete files older than 7 days
+sudo ./pihole_stats.sh -rt 7
+
+```
+
+*Note: This feature requires `SAVE_DIR` to be set in your config file. It will not delete files in the current directory.*
+
+
 ## Understanding the Metrics
 
 * **Average:** The arithmetic mean. Useful, but often skewed by a few slow queries.
 * **Median (P50):** The "Middle" query. Represents your typical experience. If your cache hit rate is high, this will be near 0ms.
 * **95th Percentile (P95):** The "Realistic Worst Case." 95% of your queries are faster than this. This is the best metric to judge your actual internet speed, ignoring extreme outliers.
+
+Here is the updated section. I added point #5 to explain the new Auto-Delete feature and included the corresponding line in the example code block.
 
 ## Configuration File
 
@@ -253,6 +280,26 @@ On the first run, the script creates `pihole_stats.conf` in the same directory. 
 2. **Set Default Save Directory:** Define a specific folder (e.g., `/home/pi/logs`) where all `-f` files will be saved automatically.
 3. **Set Database Path:** Permanently override the default `/etc/pihole/pihole-FTL.db` location.
 4. **Set Default Arguments:** Use `CONFIG_ARGS` to define default flags that run every time.
+5. **Auto-Delete Old Logs:** Set `MAX_LOG_AGE` to automatically delete files older than X days from your save directory.
+
+```bash
+# Example pihole_stats.conf content
+
+# Where to save files by default (Required for auto-delete)
+SAVE_DIR="/home/pi/pihole_reports"
+
+# Automatically delete reports older than 30 days
+MAX_LOG_AGE="30"
+
+# Default arguments to always run (optional)
+# CONFIG_ARGS='-up -24h -f "my stats.json"'
+
+# Your custom latency buckets
+L01="0.5"
+L02="20"
+...
+
+```
 
 ```bash
 # Example pihole_stats.conf content
