@@ -7,11 +7,9 @@ A lightweight Bash script to analyze your Pi-hole's DNS response times. It reads
 - **Time Filtering:** Analyze the last 24h, 7d, or any custom duration.
 - **Smart Metrics:** Automatically calculates **Average**, **Median**, and **95th Percentile** latency.
 - **JSON Output:** Export data in raw JSON format for dashboards (Home Assistant, Node-RED, etc.).
-- **Domain Filtering:** Two modes to analyze specific sites:
-  - **Partial Match:** Search for any domain containing a string (e.g., "google").
-  - **Exact Match:** Analyze a specific domain and its subdomains only (e.g., "google.com").
-- **Sequential Saving:** Automatically number your saved reports (e.g., `report_1.txt`, `report_2.txt`) to prevent accidental overwrites.
-- **External Configuration:** All settings (latency tiers, save paths) are stored in a separate `pihole_stats.conf` file, making script updates easy.
+- **Domain Filtering:** Two modes to analyze specific sites (Partial Match vs. Exact Match).
+- **Sequential Saving:** Automatically number your saved reports (e.g., `report_1.txt`) to prevent overwrites.
+- **Flexible Configuration:** Use the default config or load specific configs for different tasks (e.g., one for Google, one for Netflix).
 - **Query Modes:** Isolate **Upstream** (Internet) latency from **Local** (Pi-hole Cache) latency.
 
 <p align="center">
@@ -23,8 +21,8 @@ A lightweight Bash script to analyze your Pi-hole's DNS response times. It reads
 **Requires sqlite3**
 
 1. Download the script:
-```bash
-wget -O pihole_stats.sh https://raw.githubusercontent.com/panoc/pihole-latency-stats/main/pihole_stats.sh
+   ```bash
+   wget -O pihole_stats.sh [https://raw.githubusercontent.com/panoc/pihole-latency-stats/main/pihole_stats.sh](https://raw.githubusercontent.com/panoc/pihole-latency-stats/main/pihole_stats.sh)
 
 ```
 
@@ -35,7 +33,7 @@ chmod +x pihole_stats.sh
 ```
 
 
-3. Run it once to generate the configuration file:
+3. Run it once to generate the default configuration file:
 ```bash
 sudo ./pihole_stats.sh
 
@@ -53,6 +51,14 @@ Run the script using `sudo` (required to read the Pi-hole database). You can mix
 
 ```bash
 sudo ./pihole_stats.sh
+
+```
+
+**Get Help**
+Run with `-h` to see a full menu of commands and examples.
+
+```bash
+sudo ./pihole_stats.sh --help
 
 ```
 
@@ -105,8 +111,6 @@ sudo ./pihole_stats.sh -f daily_log.json -ts -seq
 
 * Result: `daily_log_2026-01-16_0930_1.json`
 
-
-
 ### JSON Output (Automation)
 
 Use the `-j` or `--json` flag to output the results in JSON format. Useful for feeding data into other tools.
@@ -150,6 +154,28 @@ sudo ./pihole_stats.sh -edm netflix.com
 
 ```
 
+
+
+### Configuration Management (Advanced)
+
+The script uses `pihole_stats.conf` by default, but you can create and load custom configuration files for specific tasks (e.g., different latency tiers for different sites).
+
+**Create a new config file (`-mc`)**
+Generates a fresh configuration file at the specified path.
+
+```bash
+sudo ./pihole_stats.sh -mc "google_stats.conf"
+
+```
+
+**Load a specific config file (`-c`)**
+Runs the script using the settings from your custom file.
+
+```bash
+sudo ./pihole_stats.sh -c "google_stats.conf" -f google_report.json
+
+```
+
 ### Advanced Filtering (Modes & Flags)
 
 You can isolate specific types of queries to troubleshoot where latency is coming from.
@@ -173,19 +199,15 @@ sudo ./pihole_stats.sh -db /mnt/user/appdata/pihole/pihole-FTL.db
 
 ```
 
-### Help command
-
-Run sudo ./pihole_stats.sh `-h` or `--help` to see a full list of commands and examples.
-
 ## Understanding the Metrics
 
 * **Average:** The arithmetic mean. Useful, but often skewed by a few slow queries.
 * **Median (P50):** The "Middle" query. Represents your typical experience. If your cache hit rate is high, this will be near 0ms.
 * **95th Percentile (P95):** The "Realistic Worst Case." 95% of your queries are faster than this. This is the best metric to judge your actual internet speed, ignoring extreme outliers.
 
-## Configuration
+## Configuration File
 
-On the first run, the script creates a file named `pihole_stats.conf` in the same directory. You can edit this file to:
+On the first run, the script creates `pihole_stats.conf` in the same directory. You can edit this file to permanently set your preferences:
 
 1. **Define Latency Tiers:** Customize your buckets (e.g., 0.1ms, 50ms, 100ms).
 2. **Set Default Save Directory:** Define a specific folder (e.g., `/home/pi/logs`) where all `-f` files will be saved automatically.
@@ -201,4 +223,3 @@ SAVE_DIR="/home/pi/pihole_reports"
 L01="0.5"
 L02="20"
 ...
-
