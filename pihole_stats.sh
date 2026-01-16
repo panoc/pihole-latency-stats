@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION="2.2"
+VERSION="2.3"
 
 # --- 1. SETUP & DEFAULTS ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
@@ -30,7 +30,8 @@ SAVE_DIR=""
 
 # [OPTIONAL] Default Arguments
 # If set, these arguments will REPLACE any CLI flags.
-# Example: CONFIG_ARGS="-up -24h -j -f stats.json"
+# Use single quotes if your arguments contain filenames with spaces.
+# Example: CONFIG_ARGS='-up -24h -j -f "my stats.json"'
 CONFIG_ARGS=""
 
 # Latency Tiers (Upper Limits in Milliseconds)
@@ -60,7 +61,6 @@ EOF
 }
 
 # --- 3. PRE-SCAN FLAGS ---
-# We scan for -c or -mc first to load the correct environment.
 args_preserve=("$@") 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -79,15 +79,9 @@ else
     echo "Error: Config not found: $CONFIG_TO_LOAD"; exit 1; 
 fi
 
-# [NEW] Profile Enforcement Logic
-# If the config file contains CONFIG_ARGS, we discard the original CLI args
-# and replace them with the ones from the file.
 if [ -n "$CONFIG_ARGS" ]; then
-    # eval is used here to correctly interpret quotes inside the string
-    # e.g., CONFIG_ARGS="-f 'My File.txt'" needs to be split correctly.
     eval set -- "$CONFIG_ARGS"
 else
-    # Restore original args if no profile is forced
     set -- "${args_preserve[@]}"
 fi
 
@@ -123,7 +117,7 @@ ADD_TIMESTAMP=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         -h|--help) show_help ;;
-        -c|--config|-mc|--make-config) shift; shift ;; # Already handled
+        -c|--config|-mc|--make-config) shift; shift ;;
         -up) MODE="UPSTREAM"; shift ;;
         -pi) MODE="PIHOLE"; shift ;;
         -nx) EXCLUDE_NX=true; shift ;;
@@ -134,12 +128,14 @@ while [[ $# -gt 0 ]]; do
         -db) shift; DBfile="$1"; shift ;;
         -dm|--domain)
             shift; [ -z "$1" ] && exit 1
-            RAW_INPUT="$1"; SANITIZED="${RAW_INPUT//\*/%}"; SANITIZED="${SANITIZED//\?/_}"
+            RAW_INPUT="$1"; DOMAIN_FILTER="$RAW_INPUT"
+            SANITIZED="${RAW_INPUT//\*/%}"; SANITIZED="${SANITIZED//\?/_}"
             SQL_DOMAIN_CLAUSE="AND domain LIKE '%$SANITIZED%'"
             shift ;;
         -edm|--exact-domain)
             shift; [ -z "$1" ] && exit 1
-            RAW_INPUT="$1"; SANITIZED="${RAW_INPUT//\*/%}"; SANITIZED="${SANITIZED//\?/_}"
+            RAW_INPUT="$1"; DOMAIN_FILTER="$RAW_INPUT"
+            SANITIZED="${RAW_INPUT//\*/%}"; SANITIZED="${SANITIZED//\?/_}"
             SQL_DOMAIN_CLAUSE="AND (domain LIKE '$SANITIZED' OR domain LIKE '%.$SANITIZED')"
             shift ;;
         -f) shift; OUTPUT_FILE="$1"; shift ;;
@@ -169,7 +165,6 @@ if [ "$EXCLUDE_NX" = true ]; then
 else
     [[ "$MODE" != "PIHOLE" ]] && SQL_STATUS_FILTER="status IN ($CURRENT_LIST, 16, 17)" || SQL_STATUS_FILTER="status IN ($CURRENT_LIST)"
 fi
-[ -n "$DOMAIN_FILTER" ] && MODE_LABEL="$MODE_LABEL [Domain: $RAW_INPUT]"
 
 [ ! -x "$(command -v sqlite3)" ] && echo "Error: sqlite3 required" && exit 1
 
@@ -219,6 +214,14 @@ generate_report() {
 
     # --- SQL BLOCK BUILDER ---
     
+    # Define Domain Rows conditionally
+    TEXT_DOMAIN_ROW=""
+    JSON_DOMAIN_ROW=""
+    if [ -n "$DOMAIN_FILTER" ]; then
+        TEXT_DOMAIN_ROW="SELECT \"Domain Filter : $DOMAIN_FILTER\";"
+        JSON_DOMAIN_ROW="'\"domain_filter\": \"$DOMAIN_FILTER\", ' ||"
+    fi
+
     TEXT_REPORT_SQL="
         SELECT \"=========================================================\";
         SELECT \"              Pi-hole Latency Analysis v$VERSION\";
@@ -226,6 +229,7 @@ generate_report() {
         SELECT \"Analysis Date : $CURRENT_DATE\";
         SELECT \"Time Period   : $TIME_LABEL\";
         SELECT \"Query Mode    : $MODE_LABEL\";
+        $TEXT_DOMAIN_ROW
         SELECT \"---------------------------------------------------------\";
         SELECT \"Total Queries         : \" || total_queries FROM combined_metrics;
         SELECT \"Unsuccessful Queries  : \" || invalid_count || \" (\" || printf(\"%.1f\", (invalid_count * 100.0 / total_queries)) || \"%) \" FROM combined_metrics;
@@ -250,6 +254,7 @@ generate_report() {
             '\"date\": \"$CURRENT_DATE\", ' ||
             '\"time_period\": \"$TIME_LABEL\", ' ||
             '\"mode\": \"$MODE_LABEL\", ' ||
+            $JSON_DOMAIN_ROW
             '\"stats\": {' ||
                 '\"total_queries\": ' || total_queries || ', ' ||
                 '\"unsuccessful\": ' || invalid_count || ', ' ||
