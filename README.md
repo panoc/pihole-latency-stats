@@ -1,6 +1,3 @@
-Here is the updated `README.md` reflecting all the new features (JSON support, Domain Filtering, Sequential Saving, and the External Config file).
-
-```markdown
 # Pi-hole Latency Stats
 
 A lightweight Bash script to analyze your Pi-hole's DNS response times. It reads directly from the FTL database to visualize how fast your local DNS is resolving queries.
@@ -173,8 +170,4 @@ L01="0.5"
 L02="20"
 ...
 
-```
 
-```
-
-```
