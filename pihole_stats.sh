@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION="2.4"
+VERSION="2.5"
 
 # --- 1. SETUP & DEFAULTS ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
@@ -10,6 +10,7 @@ CONFIG_TO_LOAD="$DEFAULT_CONFIG"
 DBfile="/etc/pihole/pihole-FTL.db"
 SAVE_DIR=""
 CONFIG_ARGS=""
+MAX_LOG_AGE=""  # Default: Disabled
 
 # Default Tiers
 L01="0.009"; L02="0.1"; L03="1"; L04="10"; L05="50"
@@ -26,7 +27,17 @@ create_config() {
     cat <<EOF > "$target_file"
 # ================= PI-HOLE STATS CONFIGURATION =================
 DBfile="/etc/pihole/pihole-FTL.db"
+
+# Default Save Directory (REQUIRED for Auto-Deletion to work)
+# Example: SAVE_DIR="/home/pi/pihole_reports"
 SAVE_DIR=""
+
+# Auto-Delete Old Reports (Retention Policy)
+# Delete files in SAVE_DIR older than X days.
+# Leave empty to disable.
+# WARNING: This deletes ALL files in SAVE_DIR older than the limit.
+# Example: MAX_LOG_AGE="30"
+MAX_LOG_AGE=""
 
 # [OPTIONAL] Default Arguments
 # If set, these arguments will REPLACE any CLI flags.
@@ -96,6 +107,7 @@ show_help() {
     echo "  -j               : Enable JSON output"
     echo "  -s, --silent     : No screen output (for cron)"
     echo "  -seq, -ts        : Naming (Sequential/Timestamp)"
+    echo "  -rt <days>       : Auto-delete files older than <days>"
     echo "  -c, -mc          : Config (Load/Make)"
     echo "  -db              : Custom DB path"
     exit 0
@@ -126,6 +138,7 @@ while [[ $# -gt 0 ]]; do
         -seq) SEQUENTIAL=true; shift ;;
         -ts|--timestamp) ADD_TIMESTAMP=true; shift ;;
         -db) shift; DBfile="$1"; shift ;;
+        -rt|--retention) shift; MAX_LOG_AGE="$1"; shift ;;
         -dm|--domain)
             shift; [ -z "$1" ] && exit 1
             RAW_INPUT="$1"; DOMAIN_FILTER="$RAW_INPUT"
@@ -178,10 +191,6 @@ generate_report() {
     IFS=$'\n' sorted_limits=($(printf "%s\n" "${raw_limits[@]}" | grep -v '^$' | sort -n))
     unset IFS
 
-    # Build Dynamic SQL for Tiers
-    # FIX v2.3.1: We now inject 'AND $SQL_STATUS_FILTER' into every CASE WHEN logic
-    # to ensure tiers only count the queries belonging to the selected mode.
-    
     sql_tier_columns=""
     sql_text_rows=""
     sql_json_rows=""
@@ -198,17 +207,14 @@ generate_report() {
             sql_logic="reply_time > $prev_limit_sec AND reply_time <= $limit_sec"
         fi
         
-        # [FIX IS HERE]: Added "AND $SQL_STATUS_FILTER"
         sql_tier_columns="${sql_tier_columns} SUM(CASE WHEN ${sql_logic} AND $SQL_STATUS_FILTER THEN 1 ELSE 0 END) as t${tier_index},"
         
         prev_limit_ms="$limit_ms"; prev_limit_sec="$limit_sec"; ((tier_index++))
     done
 
     labels[$tier_index]="Tier ${tier_index} (> ${prev_limit_ms}ms)"
-    # [FIX IS HERE]: Added "AND $SQL_STATUS_FILTER"
     sql_tier_columns="${sql_tier_columns} SUM(CASE WHEN reply_time > $prev_limit_sec AND $SQL_STATUS_FILTER THEN 1 ELSE 0 END) as t${tier_index}"
 
-    # Generate Output Rows
     max_len=0
     for lbl in "${labels[@]}"; do len=${#lbl}; [ $len -gt $max_len ] && max_len=$len; done
     max_len=$((max_len + 2))
@@ -349,5 +355,19 @@ if [ "$SILENT_MODE" = false ]; then
         echo "$JSON_CONTENT"
     else
         echo "$TEXT_CONTENT"
+    fi
+fi
+
+# --- 10. AUTO-DELETE OLD LOGS (New in v2.5) ---
+# Only runs if SAVE_DIR is set, exists, and MAX_LOG_AGE is a valid number
+if [ -n "$SAVE_DIR" ] && [ -d "$SAVE_DIR" ] && [ -n "$MAX_LOG_AGE" ] && [[ "$MAX_LOG_AGE" =~ ^[0-9]+$ ]]; then
+    # Find files older than X days in the specific directory and delete them
+    # -maxdepth 1 prevents going into subfolders (safety)
+    find "$SAVE_DIR" -maxdepth 1 -type f -mtime +$MAX_LOG_AGE -delete
+    
+    if [ "$SILENT_MODE" = false ]; then
+        # Check if we should report this action (only if curious about what happened)
+        # Note: 'find -delete' is silent. We assume it worked.
+        echo "Auto-Clean : Deleted reports older than $MAX_LOG_AGE days from $SAVE_DIR"
     fi
 fi
