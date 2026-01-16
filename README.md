@@ -299,22 +299,6 @@ L01="0.5"
 L02="20"
 ...
 
-```
-
-```bash
-# Example pihole_stats.conf content
-
-# Where to save files by default
-SAVE_DIR="/home/pi/pihole_reports"
-
-# Default arguments to always run (optional)
-# If using filenames with spaces, use single quotes on the outside:
-# CONFIG_ARGS='-up -24h -f "my stats.json"'
-
-# Your custom latency buckets
-L01="0.5"
-L02="20"
-...
 
 ```
 
