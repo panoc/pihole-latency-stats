@@ -26,9 +26,8 @@ A lightweight Bash script to analyze your Pi-hole's DNS response times. It reads
 **Requires sqlite3**
 
 1. Download the script:
-```bash
-wget -O pihole_stats.sh https://github.com/panoc/pihole-latency-stats/releases/download/v2.2/pihole_stats.sh
-
+```bash[
+wget -O pihole_stats.sh https://github.com/panoc/pihole-latency-stats/releases/download/v2.3/pihole_stats.sh
 ```
 
 2. Make it executable:
