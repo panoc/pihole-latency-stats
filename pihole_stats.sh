@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION="2.3.1"
+VERSION="2.4"
 
 # --- 1. SETUP & DEFAULTS ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
