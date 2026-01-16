@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION="2.3"
+VERSION="2.3.1"
 
 # --- 1. SETUP & DEFAULTS ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
@@ -179,6 +179,9 @@ generate_report() {
     unset IFS
 
     # Build Dynamic SQL for Tiers
+    # FIX v2.3.1: We now inject 'AND $SQL_STATUS_FILTER' into every CASE WHEN logic
+    # to ensure tiers only count the queries belonging to the selected mode.
+    
     sql_tier_columns=""
     sql_text_rows=""
     sql_json_rows=""
@@ -194,12 +197,16 @@ generate_report() {
             labels[$tier_index]="Tier ${tier_index} (${prev_limit_ms} - ${limit_ms}ms)"
             sql_logic="reply_time > $prev_limit_sec AND reply_time <= $limit_sec"
         fi
-        sql_tier_columns="${sql_tier_columns} SUM(CASE WHEN ${sql_logic} THEN 1 ELSE 0 END) as t${tier_index},"
+        
+        # [FIX IS HERE]: Added "AND $SQL_STATUS_FILTER"
+        sql_tier_columns="${sql_tier_columns} SUM(CASE WHEN ${sql_logic} AND $SQL_STATUS_FILTER THEN 1 ELSE 0 END) as t${tier_index},"
+        
         prev_limit_ms="$limit_ms"; prev_limit_sec="$limit_sec"; ((tier_index++))
     done
 
     labels[$tier_index]="Tier ${tier_index} (> ${prev_limit_ms}ms)"
-    sql_tier_columns="${sql_tier_columns} SUM(CASE WHEN reply_time > $prev_limit_sec THEN 1 ELSE 0 END) as t${tier_index}"
+    # [FIX IS HERE]: Added "AND $SQL_STATUS_FILTER"
+    sql_tier_columns="${sql_tier_columns} SUM(CASE WHEN reply_time > $prev_limit_sec AND $SQL_STATUS_FILTER THEN 1 ELSE 0 END) as t${tier_index}"
 
     # Generate Output Rows
     max_len=0
@@ -214,7 +221,6 @@ generate_report() {
 
     # --- SQL BLOCK BUILDER ---
     
-    # Define Domain Rows conditionally
     TEXT_DOMAIN_ROW=""
     JSON_DOMAIN_ROW=""
     if [ -n "$DOMAIN_FILTER" ]; then
