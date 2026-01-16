@@ -9,7 +9,7 @@ A lightweight Bash script to analyze your Pi-hole's DNS response times. It reads
 - **JSON Output:** Export data in raw JSON format for dashboards (Home Assistant, Node-RED, etc.).
 - **Domain Filtering:** Two modes to analyze specific sites (Partial Match vs. Exact Match).
 - **Sequential Saving:** Automatically number your saved reports (e.g., `report_1.txt`) to prevent overwrites.
-- **Flexible Configuration:** Use the default config or load specific configs for different tasks (e.g., one for Google, one for Netflix).
+- **Flexible Paths:** Load configurations and save reports to **any folder** on your system (e.g., `/mnt/backup/` or `/home/pi/logs/`).
 - **Query Modes:** Isolate **Upstream** (Internet) latency from **Local** (Pi-hole Cache) latency.
 
 <p align="center">
@@ -55,7 +55,7 @@ sudo ./pihole_stats.sh
 ```
 
 **Get Help**
-Run with `-h` or `--help` to see a full menu of commands and examples.
+Run with `-h` to see a full menu of commands and examples.
 
 ```bash
 sudo ./pihole_stats.sh --help
@@ -80,12 +80,20 @@ sudo ./pihole_stats.sh -7d
 
 ### Saving Output (Files & Logs)
 
-You can save the output to a file using the `-f` flag. You can also add timestamps or sequential numbering to organize your logs.
+You can save the output to a file using the `-f` flag. You can use **absolute paths** to save files to specific folders.
 
 **Basic Save (Overwrites if exists)**
 
 ```bash
 sudo ./pihole_stats.sh -24h -f report.txt
+
+```
+
+**Save to a specific folder**
+You can provide a full path to save the report anywhere.
+
+```bash
+sudo ./pihole_stats.sh -f /home/pi/documents/dns_reports/weekly.txt
 
 ```
 
@@ -158,13 +166,14 @@ sudo ./pihole_stats.sh -edm netflix.com
 
 ### Configuration Management (Advanced)
 
-The script uses `pihole_stats.conf` by default, but you can create and load custom configuration files for specific tasks (e.g., different latency tiers for different sites).
+The script uses `pihole_stats.conf` by default, but you can create and load custom configuration files. You can use full paths to store configs anywhere.
 
 **Create a new config file (`-mc`)**
 Generates a fresh configuration file at the specified path.
 
 ```bash
-sudo ./pihole_stats.sh -mc "google_stats.conf"
+# Create a config in a specific folder
+sudo ./pihole_stats.sh -mc "/home/pi/configs/google_stats.conf"
 
 ```
 
@@ -172,7 +181,7 @@ sudo ./pihole_stats.sh -mc "google_stats.conf"
 Runs the script using the settings from your custom file.
 
 ```bash
-sudo ./pihole_stats.sh -c "google_stats.conf" -f google_report.json
+sudo ./pihole_stats.sh -c "/home/pi/configs/google_stats.conf" -f google_report.json
 
 ```
 
@@ -223,3 +232,4 @@ SAVE_DIR="/home/pi/pihole_reports"
 L01="0.5"
 L02="20"
 ...
+
