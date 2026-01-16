@@ -105,6 +105,8 @@ sudo ./pihole_stats.sh -f daily_log.json -ts -seq
 
 * Result: `daily_log_2026-01-16_0930_1.json`
 
+
+
 ### JSON Output (Automation)
 
 Use the `-j` or `--json` flag to output the results in JSON format. Useful for feeding data into other tools.
@@ -147,6 +149,10 @@ Matches the exact domain and its subdomains only. Useful for specific site analy
 sudo ./pihole_stats.sh -edm netflix.com
 
 ```
+
+**Help command**
+
+Use sudo ./pihole_stats.sh -24h `-h` or  `--help` flag.
 
 
 
