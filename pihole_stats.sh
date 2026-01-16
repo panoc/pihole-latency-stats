@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION="1.3"
+VERSION="1.4"
 
 # --- 1. CONFIGURATION MANAGEMENT ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
@@ -14,8 +14,6 @@ create_default_config() {
 DBfile="/etc/pihole/pihole-FTL.db"
 
 # Default Save Directory
-# If set (e.g., "/home/pi/stats_logs"), files from -f will be saved here.
-# If empty, files are saved in the current working directory.
 SAVE_DIR=""
 
 # Latency Tiers (Upper Limits in Milliseconds)
@@ -67,6 +65,8 @@ while [[ $# -gt 0 ]]; do
         -j|--json) JSON_OUTPUT=true; shift ;;
         -seq) SEQUENTIAL=true; shift ;;
         -db) shift; DBfile="$1"; shift ;;
+        
+        # PARTIAL MATCH (Broad search, e.g. "google" finds all TLDs)
         -dm|--domain)
             shift
             if [ -z "$1" ]; then echo "Error: -dm requires a domain name."; exit 1; fi
@@ -74,6 +74,17 @@ while [[ $# -gt 0 ]]; do
             SQL_DOMAIN_CLAUSE="AND domain LIKE '%$DOMAIN_FILTER%'"
             shift
             ;;
+            
+        # EXACT MATCH (Specific TLD, e.g. "google.gr" finds only .gr)
+        -edm|--exact-domain)
+            shift
+            if [ -z "$1" ]; then echo "Error: -edm requires a specific domain."; exit 1; fi
+            DOMAIN_FILTER="$1"
+            # Matches exact domain OR subdomains ending in .domain
+            SQL_DOMAIN_CLAUSE="AND (domain = '$DOMAIN_FILTER' OR domain LIKE '%.$DOMAIN_FILTER')"
+            shift
+            ;;
+
         -f) shift; OUTPUT_FILE="$1"; shift ;;
         -*)
             INPUT="${1#-}"
@@ -284,16 +295,13 @@ EOF
 if [ -n "$OUTPUT_FILE" ]; then
     
     # 1. Handle SAVE_DIR from config
-    # If OUTPUT_FILE is not an absolute path (doesn't start with /) AND SAVE_DIR is set
     if [[ "$OUTPUT_FILE" != /* ]] && [ -n "$SAVE_DIR" ]; then
-        # Ensure directory exists
         mkdir -p "$SAVE_DIR"
         OUTPUT_FILE="${SAVE_DIR}/${OUTPUT_FILE}"
     fi
 
     # 2. Handle Sequential Naming (-seq)
     if [ "$SEQUENTIAL" = true ] && [ -f "$OUTPUT_FILE" ]; then
-        # Extract extension
         if [[ "$OUTPUT_FILE" == *.* ]]; then
             extension="${OUTPUT_FILE##*.}"
             base="${OUTPUT_FILE%.*}"
