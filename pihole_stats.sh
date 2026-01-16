@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION="1.1"
+VERSION="1.2"
 
 # --- 1. CONFIGURATION MANAGEMENT ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
@@ -64,7 +64,7 @@ while [[ $# -gt 0 ]]; do
             shift
             if [ -z "$1" ]; then echo "Error: -dm requires a domain name."; exit 1; fi
             DOMAIN_FILTER="$1"
-            # CHANGED: Use LIKE with % wildcards for partial matching
+            # CHANGED: Use LIKE with % wildcards for partial matching (e.g. 'google' finds 'www.google.com')
             SQL_DOMAIN_CLAUSE="AND domain LIKE '%$DOMAIN_FILTER%'"
             shift
             ;;
@@ -175,14 +175,11 @@ generate_report() {
         sql_text_rows="${sql_text_rows} SELECT printf(\"%-${max_len}s : \", \"${labels[$i]}\") || printf(\"%6.2f%%\", (t${i} * 100.0 / analyzed_count)) || \"  (\" || t${i} || \")\" FROM tiers;"
         
         # JSON Mode
-        # FIX: We now strictly control the UNION ALL injection
         this_json_select="SELECT '{\"label\": \"${labels[$i]}\", \"count\": ' || t${i} || ', \"percentage\": ' || printf(\"%.2f\", (t${i} * 100.0 / analyzed_count)) || '}' FROM tiers"
         
         if [ -z "$sql_json_rows" ]; then
-            # First item, no UNION before it
             sql_json_rows="$this_json_select"
         else
-            # Subsequent items: Add comma row AND the union for the next item
             sql_json_rows="${sql_json_rows} UNION ALL SELECT ',' UNION ALL $this_json_select"
         fi
     done
@@ -233,7 +230,7 @@ generate_report() {
             '\"tiers\": [' 
         FROM math_check;
         
-        $sql_json_rows
+        $sql_json_rows ; 
         
         SELECT ']}' ;"
     fi
