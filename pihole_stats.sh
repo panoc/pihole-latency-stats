@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION="1.9"
+VERSION="1.9.1"
 
 # --- 1. SETUP & DEFAULTS ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
@@ -239,22 +239,21 @@ generate_report() {
     fi
 
     # --- OPTIMIZED SQL EXECUTION ---
-    # PRAGMA temp_store = MEMORY: Forces temp tables to RAM (huge speedup on SD cards)
-    # PRAGMA journal_mode = OFF: Disables rollback journal for temp operations
     sqlite3 "$DBfile" <<EOF
 .mode list
 .headers off
+.output /dev/null
 PRAGMA temp_store = MEMORY;
 PRAGMA journal_mode = OFF;
 PRAGMA synchronous = OFF;
 
-/* 1. FILTER: Create a working set of data (needed for P95 sorting) */
+/* 1. FILTER */
 CREATE TEMP TABLE raw_data AS
     SELECT status, reply_time 
     FROM queries 
     WHERE timestamp >= $MIN_TIMESTAMP $SQL_DOMAIN_CLAUSE; 
 
-/* 2. AGGREGATE: Calculate Stats AND Tiers in ONE PASS (Speed Optimization) */
+/* 2. AGGREGATE */
 CREATE TEMP TABLE combined_metrics AS
     SELECT 
         COUNT(*) as total_queries,
@@ -263,20 +262,20 @@ CREATE TEMP TABLE combined_metrics AS
         SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_BLOCKED_DEF THEN 1 ELSE 0 END) as blocked_count,
         SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_STATUS_FILTER THEN 1 ELSE 0 END) as analyzed_count,
         SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_STATUS_FILTER THEN reply_time ELSE 0.0 END) as total_duration,
-        /* Ignored count calculation: (Valid - Blocked - Analyzed) */
         (SUM(CASE WHEN reply_time IS NOT NULL THEN 1 ELSE 0 END) - 
          SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_BLOCKED_DEF THEN 1 ELSE 0 END) - 
          SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_STATUS_FILTER THEN 1 ELSE 0 END)) as ignored_count,
         $sql_tier_columns
     FROM raw_data;
 
-/* 3. SORT: Create sorted view for Median/P95 */
+/* 3. SORT */
 CREATE TEMP TABLE analyzed_times AS
     SELECT reply_time 
     FROM raw_data 
     WHERE reply_time IS NOT NULL AND $SQL_STATUS_FILTER
     ORDER BY reply_time ASC;
 
+.output stdout
 $OUTPUT_SQL
 EOF
 }
