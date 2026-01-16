@@ -91,6 +91,43 @@ sudo ./pihole_stats.sh -24h -f report.txt -seq
 
 ```
 
+```markdown
+### Saving to File & Timestamps
+
+You can save the output to a file using the `-f` flag.
+
+**Basic Save (Overwrites if exists)**
+```bash
+sudo ./pihole_stats.sh -f report.txt
+
+```
+
+**Add Timestamp (`-ts`)**
+Automatically inserts the date and time (YYYY-MM-DD_HHMM) into the filename.
+
+* Command: `sudo ./pihole_stats.sh -f report.json -ts`
+* Result: `report_2026-01-16_0930.json`
+
+**Add Sequential Numbering (`-seq`)**
+Prevents overwriting by adding a number if the file already exists.
+
+* Command: `sudo ./pihole_stats.sh -f report.json -seq`
+* Result: `report_1.json` (if `report.json` exists)
+
+**Combine Everything (Best for Cron)**
+Combine both for organized, conflict-free logs.
+
+```bash
+sudo ./pihole_stats.sh -f daily_log.json -ts -seq
+
+```
+
+* Result: `daily_log_2026-01-16_0930_1.json`
+
+```
+
+```
+
 ### JSON Output (Automation)
 
 Use the `-j` or `--json` flag to output the results in JSON format. Useful for feeding data into other tools.
