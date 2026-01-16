@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION="1.4"
+VERSION="1.6"
 
 # --- 1. CONFIGURATION MANAGEMENT ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
@@ -14,6 +14,7 @@ create_default_config() {
 DBfile="/etc/pihole/pihole-FTL.db"
 
 # Default Save Directory
+# If set (e.g., "/home/pi/stats_logs"), files from -f will be saved here.
 SAVE_DIR=""
 
 # Latency Tiers (Upper Limits in Milliseconds)
@@ -46,7 +47,40 @@ if [ ! -f "$CONFIG_FILE" ]; then
 fi
 source "$CONFIG_FILE"
 
-# --- 2. ARGUMENT PARSING ---
+# --- 2. HELP FUNCTION ---
+show_help() {
+    echo "Pi-hole Latency Analysis v$VERSION"
+    echo "Usage: sudo ./pihole_stats.sh [OPTIONS]"
+    echo ""
+    echo "  -- TIME FILTERING --"
+    echo "  -24h, -7d, -1h     : Analyze the last X hours (h) or days (d)."
+    echo "                       (Default: All Time)"
+    echo ""
+    echo "  -- FILTERING MODES --"
+    echo "  -up                : Upstream Only (Forwarded queries)."
+    echo "  -pi                : Pi-hole Only (Cache & Local)."
+    echo "  -nx                : Exclude Upstream Blocks (NXDOMAIN/0.0.0.0)."
+    echo "  -dm <string>       : Domain Partial Match (e.g. 'google' finds google.com, google.gr)."
+    echo "  -edm <domain>      : Domain Exact Match (e.g. 'google.com' only)."
+    echo ""
+    echo "  -- OUTPUT OPTIONS --"
+    echo "  -f <filename>      : Save results to a file."
+    echo "  -j, --json         : Output in JSON format."
+    echo "  -seq               : Sequential naming (report_1.txt) to prevent overwrites."
+    echo "  -ts, --timestamp   : Add timestamp to filename (report_2026-01-16.txt)."
+    echo ""
+    echo "  -- CONFIGURATION --"
+    echo "  -db <path>         : Use a custom database path."
+    echo "  -h, --help         : Show this help message."
+    echo ""
+    echo "Examples:"
+    echo "  sudo ./pihole_stats.sh -24h"
+    echo "  sudo ./pihole_stats.sh -up -nx -f report.json -j -ts"
+    echo "  sudo ./pihole_stats.sh -edm netflix.com -7d"
+    exit 0
+}
+
+# --- 3. ARGUMENT PARSING ---
 MIN_TIMESTAMP=0
 TIME_LABEL="All Time"
 MODE="DEFAULT"
@@ -56,17 +90,20 @@ JSON_OUTPUT=false
 DOMAIN_FILTER=""
 SQL_DOMAIN_CLAUSE=""
 SEQUENTIAL=false
+ADD_TIMESTAMP=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
+        -h|--help) show_help ;;
+        
         -up) MODE="UPSTREAM"; shift ;;
         -pi) MODE="PIHOLE"; shift ;;
         -nx) EXCLUDE_NX=true; shift ;;
         -j|--json) JSON_OUTPUT=true; shift ;;
         -seq) SEQUENTIAL=true; shift ;;
+        -ts|--timestamp) ADD_TIMESTAMP=true; shift ;;
         -db) shift; DBfile="$1"; shift ;;
         
-        # PARTIAL MATCH (Broad search, e.g. "google" finds all TLDs)
         -dm|--domain)
             shift
             if [ -z "$1" ]; then echo "Error: -dm requires a domain name."; exit 1; fi
@@ -75,12 +112,10 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
             
-        # EXACT MATCH (Specific TLD, e.g. "google.gr" finds only .gr)
         -edm|--exact-domain)
             shift
             if [ -z "$1" ]; then echo "Error: -edm requires a specific domain."; exit 1; fi
             DOMAIN_FILTER="$1"
-            # Matches exact domain OR subdomains ending in .domain
             SQL_DOMAIN_CLAUSE="AND (domain = '$DOMAIN_FILTER' OR domain LIKE '%.$DOMAIN_FILTER')"
             shift
             ;;
@@ -105,7 +140,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# --- 3. CONSTRUCT SQL FILTERS ---
+# --- 4. CONSTRUCT SQL FILTERS ---
 SQL_BLOCKED_DEF="status IN (1, 4, 5, 9, 10, 11)"
 BASE_DEFAULT="2, 3, 6, 7, 8, 12, 13, 14, 15"
 BASE_UPSTREAM="2, 6, 7, 8"
@@ -142,7 +177,7 @@ if ! command -v sqlite3 &> /dev/null; then
     exit 1
 fi
 
-# --- 4. MAIN GENERATION FUNCTION ---
+# --- 5. MAIN GENERATION FUNCTION ---
 generate_report() {
     CURRENT_DATE=$(date "+%Y-%m-%d %H:%M:%S")
 
@@ -291,7 +326,7 @@ $OUTPUT_SQL
 EOF
 }
 
-# --- 5. OUTPUT HANDLING ---
+# --- 6. OUTPUT HANDLING ---
 if [ -n "$OUTPUT_FILE" ]; then
     
     # 1. Handle SAVE_DIR from config
@@ -299,8 +334,20 @@ if [ -n "$OUTPUT_FILE" ]; then
         mkdir -p "$SAVE_DIR"
         OUTPUT_FILE="${SAVE_DIR}/${OUTPUT_FILE}"
     fi
+    
+    # 2. Handle Timestamp Injection (-ts)
+    if [ "$ADD_TIMESTAMP" = true ]; then
+        timestamp=$(date "+%Y-%m-%d_%H%M")
+        if [[ "$OUTPUT_FILE" == *.* ]]; then
+            extension="${OUTPUT_FILE##*.}"
+            base="${OUTPUT_FILE%.*}"
+            OUTPUT_FILE="${base}_${timestamp}.${extension}"
+        else
+            OUTPUT_FILE="${OUTPUT_FILE}_${timestamp}"
+        fi
+    fi
 
-    # 2. Handle Sequential Naming (-seq)
+    # 3. Handle Sequential Naming (-seq)
     if [ "$SEQUENTIAL" = true ] && [ -f "$OUTPUT_FILE" ]; then
         if [[ "$OUTPUT_FILE" == *.* ]]; then
             extension="${OUTPUT_FILE##*.}"
@@ -318,7 +365,7 @@ if [ -n "$OUTPUT_FILE" ]; then
         OUTPUT_FILE="${base}_${counter}${ext_str}"
     fi
 
-    # 3. Execute
+    # 4. Execute
     generate_report | tee "$OUTPUT_FILE"
     if [ "$JSON_OUTPUT" = false ]; then echo "Results saved to: $OUTPUT_FILE"; fi
 else
