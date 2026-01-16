@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION="2.2"
+VERSION="2.0"
 
 # --- 1. CONFIGURATION MANAGEMENT ---
 # Determine the directory where this script is located
