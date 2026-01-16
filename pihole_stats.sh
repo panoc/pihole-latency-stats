@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION="1.9.1"
+VERSION="2.0"
 
 # --- 1. SETUP & DEFAULTS ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
@@ -67,17 +67,41 @@ elif [ "$CONFIG_TO_LOAD" == "$DEFAULT_CONFIG" ]; then
     create_config "$DEFAULT_CONFIG" > /dev/null; source "$DEFAULT_CONFIG"
 else echo "Error: Config not found: $CONFIG_TO_LOAD"; exit 1; fi
 
-# --- 5. HELP ---
+# --- 5. HELP FUNCTION ---
 show_help() {
     echo "Pi-hole Latency Analysis v$VERSION"
     echo "Usage: sudo ./pihole_stats.sh [OPTIONS]"
-    echo "  -24h, -7d        : Time filter"
-    echo "  -up, -pi, -nx    : Query modes (Upstream/Pihole/NoBlock)"
-    echo "  -dm, -edm        : Domain filter (Partial/Exact)"
-    echo "  -f, -j           : Output (File/JSON)"
-    echo "  -seq, -ts        : Naming (Sequential/Timestamp)"
-    echo "  -c, -mc          : Config (Load/Make)"
-    echo "  -db              : Custom DB path"
+    echo ""
+    echo "  -- CONFIGURATION --"
+    echo "  -c <file>          : Load a specific config file (Default: pihole_stats.conf)."
+    echo "  -mc <file>         : Make (Generate) a new config file and exit."
+    echo "  -db <path>         : Override Database path."
+    echo ""
+    echo "  -- TIME FILTERING --"
+    echo "  -24h, -7d, -1h     : Analyze the last X hours (h) or days (d)."
+    echo "                       (Default: All Time)"
+    echo ""
+    echo "  -- FILTERING MODES --"
+    echo "  -up                : Upstream Only (Forwarded queries)."
+    echo "  -pi                : Pi-hole Only (Cache & Local)."
+    echo "  -nx                : Exclude Upstream Blocks (NXDOMAIN/0.0.0.0)."
+    echo "  -dm <string>       : Domain Partial Match (Supports * and ? wildcards)."
+    echo "                       Example: -dm \"goo*le\" finds google.com, goooogle.gr"
+    echo "  -edm <domain>      : Domain Exact Match (Supports * and ? wildcards)."
+    echo "                       Example: -edm \"fr*z.com\" finds fritz.com, fraz.com"
+    echo ""
+    echo "  -- OUTPUT OPTIONS --"
+    echo "  -f <filename>      : Save results to a file."
+    echo "  -j, --json         : Output in JSON format."
+    echo "  -seq               : Sequential naming (report_1.txt) to prevent overwrites."
+    echo "  -ts, --timestamp   : Add timestamp to filename (report_2026-01-16.txt)."
+    echo ""
+    echo "  -- OTHER --"
+    echo "  -h, --help         : Show this help message."
+    echo ""
+    echo "  * TIP: If your file paths or search patterns contain spaces or wildcards,"
+    echo "    wrap them in quotes. Example: -dm \"*.google.com\""
+    echo ""
     exit 0
 }
 
