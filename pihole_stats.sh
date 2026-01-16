@@ -1,38 +1,30 @@
 #!/bin/bash
-VERSION="1.8"
+VERSION="1.9"
 
 # --- 1. SETUP & DEFAULTS ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 DEFAULT_CONFIG="$SCRIPT_DIR/pihole_stats.conf"
 CONFIG_TO_LOAD="$DEFAULT_CONFIG"
 
-# Default Internal Values (Overridden by config or flags)
+# Default Internal Values
 DBfile="/etc/pihole/pihole-FTL.db"
 SAVE_DIR=""
-# Default Tiers (In case config is missing/empty)
+# Default Tiers
 L01="0.009"; L02="0.1"; L03="1"; L04="10"; L05="50"
 L06="100"; L07="300"; L08="1000"
 
 # --- 2. CONFIGURATION GENERATOR ---
 create_config() {
     local target_file="$1"
-    
     if [ -f "$target_file" ]; then
-        echo "Error: File '$target_file' already exists. Will not overwrite."
+        echo "Error: File '$target_file' already exists."
         exit 1
     fi
-
     echo "Creating configuration file at: $target_file"
     cat <<EOF > "$target_file"
 # ================= PI-HOLE STATS CONFIGURATION =================
-# Database Path
 DBfile="/etc/pihole/pihole-FTL.db"
-
-# Default Save Directory
-# If set (e.g., "/home/pi/stats_logs"), files from -f will be saved here.
 SAVE_DIR=""
-
-# Latency Tiers (Upper Limits in Milliseconds)
 L01="0.009"
 L02="0.1"
 L03="1"
@@ -55,85 +47,41 @@ L19=""
 L20=""
 EOF
     chmod 644 "$target_file"
-    echo "Done. You can now use it with: -c \"$target_file\""
+    echo "Done. Use with: -c \"$target_file\""
 }
 
-# --- 3. PRE-SCAN FOR CONFIG FLAGS ---
+# --- 3. PRE-SCAN FLAGS ---
 args_preserve=("$@") 
-
 while [[ $# -gt 0 ]]; do
     case $1 in
-        -c|--config)
-            shift
-            if [ -z "$1" ]; then echo "Error: -c requires a filename."; exit 1; fi
-            CONFIG_TO_LOAD="$1"
-            shift
-            ;;
-        -mc|--make-config)
-            shift
-            if [ -z "$1" ]; then echo "Error: -mc requires a filename."; exit 1; fi
-            create_config "$1"
-            exit 0
-            ;;
-        *)
-            shift
-            ;;
+        -c|--config) shift; CONFIG_TO_LOAD="$1"; shift ;;
+        -mc|--make-config) shift; create_config "$1"; exit 0 ;;
+        *) shift ;;
     esac
 done
-
-# Reset arguments for Main Loop
 set -- "${args_preserve[@]}"
 
-# --- 4. LOAD CONFIGURATION ---
-if [ -f "$CONFIG_TO_LOAD" ]; then
-    source "$CONFIG_TO_LOAD"
+# --- 4. LOAD CONFIG ---
+if [ -f "$CONFIG_TO_LOAD" ]; then source "$CONFIG_TO_LOAD"
 elif [ "$CONFIG_TO_LOAD" == "$DEFAULT_CONFIG" ]; then
-    create_config "$DEFAULT_CONFIG" > /dev/null
-    source "$DEFAULT_CONFIG"
-else
-    echo "Error: Configuration file not found: $CONFIG_TO_LOAD"
-    exit 1
-fi
+    create_config "$DEFAULT_CONFIG" > /dev/null; source "$DEFAULT_CONFIG"
+else echo "Error: Config not found: $CONFIG_TO_LOAD"; exit 1; fi
 
-# --- 5. HELP FUNCTION ---
+# --- 5. HELP ---
 show_help() {
     echo "Pi-hole Latency Analysis v$VERSION"
     echo "Usage: sudo ./pihole_stats.sh [OPTIONS]"
-    echo ""
-    echo "  -- CONFIGURATION --"
-    echo "  -c <file>          : Load a specific config file (Default: pihole_stats.conf)."
-    echo "  -mc <file>         : Make (Generate) a new config file and exit."
-    echo "  -db <path>         : Override Database path."
-    echo ""
-    echo "  -- TIME FILTERING --"
-    echo "  -24h, -7d, -1h     : Analyze the last X hours (h) or days (d)."
-    echo "                       (Default: All Time)"
-    echo ""
-    echo "  -- FILTERING MODES --"
-    echo "  -up                : Upstream Only (Forwarded queries)."
-    echo "  -pi                : Pi-hole Only (Cache & Local)."
-    echo "  -nx                : Exclude Upstream Blocks (NXDOMAIN/0.0.0.0)."
-    echo "  -dm <string>       : Domain Partial Match (Supports * and ? wildcards)."
-    echo "                       Example: -dm \"goo*le\" finds google.com, goooogle.gr"
-    echo "  -edm <domain>      : Domain Exact Match (Supports * and ? wildcards)."
-    echo "                       Example: -edm \"fr*z.com\" finds fritz.com, fraz.com"
-    echo ""
-    echo "  -- OUTPUT OPTIONS --"
-    echo "  -f <filename>      : Save results to a file."
-    echo "  -j, --json         : Output in JSON format."
-    echo "  -seq               : Sequential naming (report_1.txt) to prevent overwrites."
-    echo "  -ts, --timestamp   : Add timestamp to filename (report_2026-01-16.txt)."
-    echo ""
-    echo "  -- OTHER --"
-    echo "  -h, --help         : Show this help message."
-    echo ""
-    echo "  * TIP: If your file paths or search patterns contain spaces or wildcards,"
-    echo "    wrap them in quotes. Example: -dm \"*.google.com\""
-    echo ""
+    echo "  -24h, -7d        : Time filter"
+    echo "  -up, -pi, -nx    : Query modes (Upstream/Pihole/NoBlock)"
+    echo "  -dm, -edm        : Domain filter (Partial/Exact)"
+    echo "  -f, -j           : Output (File/JSON)"
+    echo "  -seq, -ts        : Naming (Sequential/Timestamp)"
+    echo "  -c, -mc          : Config (Load/Make)"
+    echo "  -db              : Custom DB path"
     exit 0
 }
 
-# --- 6. MAIN ARGUMENT PARSING ---
+# --- 6. ARGUMENTS ---
 MIN_TIMESTAMP=0
 TIME_LABEL="All Time"
 MODE="DEFAULT"
@@ -148,9 +96,7 @@ ADD_TIMESTAMP=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         -h|--help) show_help ;;
-        
         -c|--config|-mc|--make-config) shift; shift ;;
-        
         -up) MODE="UPSTREAM"; shift ;;
         -pi) MODE="PIHOLE"; shift ;;
         -nx) EXCLUDE_NX=true; shift ;;
@@ -158,92 +104,48 @@ while [[ $# -gt 0 ]]; do
         -seq) SEQUENTIAL=true; shift ;;
         -ts|--timestamp) ADD_TIMESTAMP=true; shift ;;
         -db) shift; DBfile="$1"; shift ;;
-        
         -dm|--domain)
-            shift
-            if [ -z "$1" ]; then echo "Error: -dm requires a domain pattern."; exit 1; fi
-            # Replace shell wildcards with SQL wildcards
-            RAW_INPUT="$1"
-            SANITIZED="${RAW_INPUT//\*/%}"
-            SANITIZED="${SANITIZED//\?/_}"
-            DOMAIN_FILTER="$SANITIZED"
-            
-            SQL_DOMAIN_CLAUSE="AND domain LIKE '%$DOMAIN_FILTER%'"
-            shift
-            ;;
-            
+            shift; [ -z "$1" ] && exit 1
+            RAW_INPUT="$1"; SANITIZED="${RAW_INPUT//\*/%}"; SANITIZED="${SANITIZED//\?/_}"
+            SQL_DOMAIN_CLAUSE="AND domain LIKE '%$SANITIZED%'"
+            shift ;;
         -edm|--exact-domain)
-            shift
-            if [ -z "$1" ]; then echo "Error: -edm requires a specific domain pattern."; exit 1; fi
-            # Replace shell wildcards with SQL wildcards
-            RAW_INPUT="$1"
-            SANITIZED="${RAW_INPUT//\*/%}"
-            SANITIZED="${SANITIZED//\?/_}"
-            DOMAIN_FILTER="$SANITIZED"
-            
-            # Use LIKE for both clauses to support the wildcards
-            SQL_DOMAIN_CLAUSE="AND (domain LIKE '$DOMAIN_FILTER' OR domain LIKE '%.$DOMAIN_FILTER')"
-            shift
-            ;;
-
+            shift; [ -z "$1" ] && exit 1
+            RAW_INPUT="$1"; SANITIZED="${RAW_INPUT//\*/%}"; SANITIZED="${SANITIZED//\?/_}"
+            SQL_DOMAIN_CLAUSE="AND (domain LIKE '$SANITIZED' OR domain LIKE '%.$SANITIZED')"
+            shift ;;
         -f) shift; OUTPUT_FILE="$1"; shift ;;
         -*)
-            INPUT="${1#-}"
-            UNIT="${INPUT: -1}"
-            VALUE="${INPUT:0:${#INPUT}-1}"
-            if [[ "$UNIT" == "h" ]]; then
-                OFFSET=$((VALUE * 3600))
-                TIME_LABEL="Last $VALUE Hours"
-                MIN_TIMESTAMP=$(( $(date +%s) - OFFSET ))
-            elif [[ "$UNIT" == "d" ]]; then
-                OFFSET=$((VALUE * 86400))
-                TIME_LABEL="Last $VALUE Days"
-                MIN_TIMESTAMP=$(( $(date +%s) - OFFSET ))
+            INPUT="${1#-}"; UNIT="${INPUT: -1}"; VALUE="${INPUT:0:${#INPUT}-1}"
+            if [[ "$UNIT" == "h" ]]; then OFFSET=$((VALUE * 3600)); TIME_LABEL="Last $VALUE Hours"
+            elif [[ "$UNIT" == "d" ]]; then OFFSET=$((VALUE * 86400)); TIME_LABEL="Last $VALUE Days"
             fi
-            shift 
-            ;;
+            MIN_TIMESTAMP=$(( $(date +%s) - OFFSET )); shift ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
 
-# --- 7. CONSTRUCT SQL FILTERS ---
+# --- 7. SQL FILTERS ---
 SQL_BLOCKED_DEF="status IN (1, 4, 5, 9, 10, 11)"
 BASE_DEFAULT="2, 3, 6, 7, 8, 12, 13, 14, 15"
 BASE_UPSTREAM="2, 6, 7, 8"
 BASE_PIHOLE="3, 12, 13, 14, 15"
 
-if [[ "$MODE" == "UPSTREAM" ]]; then
-    CURRENT_LIST="$BASE_UPSTREAM"
-    MODE_LABEL="Upstream Only (Forwarded)"
-elif [[ "$MODE" == "PIHOLE" ]]; then
-    CURRENT_LIST="$BASE_PIHOLE"
-    MODE_LABEL="Pi-hole Only (Cache & Optimizer)"
-else
-    CURRENT_LIST="$BASE_DEFAULT"
-    MODE_LABEL="All Normal Queries (Upstream + Cache)"
-fi
+if [[ "$MODE" == "UPSTREAM" ]]; then CURRENT_LIST="$BASE_UPSTREAM"; MODE_LABEL="Upstream Only"
+elif [[ "$MODE" == "PIHOLE" ]]; then CURRENT_LIST="$BASE_PIHOLE"; MODE_LABEL="Pi-hole Only"
+else CURRENT_LIST="$BASE_DEFAULT"; MODE_LABEL="All Normal Queries"; fi
 
 if [ "$EXCLUDE_NX" = true ]; then
-    MODE_LABEL="$MODE_LABEL [Excl. Upstream Blocks]"
+    MODE_LABEL="$MODE_LABEL [Excl. Blocks]"
     SQL_STATUS_FILTER="status IN ($CURRENT_LIST)"
 else
-    if [[ "$MODE" != "PIHOLE" ]]; then
-        SQL_STATUS_FILTER="status IN ($CURRENT_LIST, 16, 17)"
-    else
-        SQL_STATUS_FILTER="status IN ($CURRENT_LIST)"
-    fi
+    [[ "$MODE" != "PIHOLE" ]] && SQL_STATUS_FILTER="status IN ($CURRENT_LIST, 16, 17)" || SQL_STATUS_FILTER="status IN ($CURRENT_LIST)"
 fi
+[ -n "$DOMAIN_FILTER" ] && MODE_LABEL="$MODE_LABEL [Domain: $RAW_INPUT]"
 
-if [ -n "$DOMAIN_FILTER" ]; then
-    MODE_LABEL="$MODE_LABEL [Domain: $RAW_INPUT]"
-fi
+[ ! -x "$(command -v sqlite3)" ] && echo "Error: sqlite3 required" && exit 1
 
-if ! command -v sqlite3 &> /dev/null; then
-    echo "Error: sqlite3 is not installed."
-    exit 1
-fi
-
-# --- 8. MAIN GENERATION FUNCTION ---
+# --- 8. GENERATE REPORT ---
 generate_report() {
     CURRENT_DATE=$(date "+%Y-%m-%d %H:%M:%S")
 
@@ -253,13 +155,11 @@ generate_report() {
     IFS=$'\n' sorted_limits=($(printf "%s\n" "${raw_limits[@]}" | grep -v '^$' | sort -n))
     unset IFS
 
-    # Dynamic SQL Generation
-    sql_case_columns=""
+    # Build Dynamic SQL for Tiers
+    sql_tier_columns=""
     sql_text_rows=""
     sql_json_rows=""
-    prev_limit_ms="0"
-    prev_limit_sec="0"
-    tier_index=0
+    prev_limit_ms="0"; prev_limit_sec="0"; tier_index=0
     declare -a labels
 
     for limit_ms in "${sorted_limits[@]}"; do
@@ -271,38 +171,25 @@ generate_report() {
             labels[$tier_index]="Tier ${tier_index} (${prev_limit_ms} - ${limit_ms}ms)"
             sql_logic="reply_time > $prev_limit_sec AND reply_time <= $limit_sec"
         fi
-        sql_case_columns="${sql_case_columns} SUM(CASE WHEN ${sql_logic} THEN 1 ELSE 0 END) as t${tier_index},"
-        prev_limit_ms="$limit_ms"
-        prev_limit_sec="$limit_sec"
-        ((tier_index++))
+        sql_tier_columns="${sql_tier_columns} SUM(CASE WHEN ${sql_logic} THEN 1 ELSE 0 END) as t${tier_index},"
+        prev_limit_ms="$limit_ms"; prev_limit_sec="$limit_sec"; ((tier_index++))
     done
 
     labels[$tier_index]="Tier ${tier_index} (> ${prev_limit_ms}ms)"
-    sql_case_columns="${sql_case_columns} SUM(CASE WHEN reply_time > $prev_limit_sec THEN 1 ELSE 0 END) as t${tier_index}"
+    sql_tier_columns="${sql_tier_columns} SUM(CASE WHEN reply_time > $prev_limit_sec THEN 1 ELSE 0 END) as t${tier_index}"
 
-    # Calculate Alignment & Build Rows
+    # Generate Output Rows
     max_len=0
-    for lbl in "${labels[@]}"; do
-        len=${#lbl}
-        if [ $len -gt $max_len ]; then max_len=$len; fi
-    done
+    for lbl in "${labels[@]}"; do len=${#lbl}; [ $len -gt $max_len ] && max_len=$len; done
     max_len=$((max_len + 2))
 
     for i in "${!labels[@]}"; do
-        # Text Mode
-        sql_text_rows="${sql_text_rows} SELECT printf(\"%-${max_len}s : \", \"${labels[$i]}\") || printf(\"%6.2f%%\", (t${i} * 100.0 / analyzed_count)) || \"  (\" || t${i} || \")\" FROM tiers;"
-        
-        # JSON Mode
-        this_json_select="SELECT '{\"label\": \"${labels[$i]}\", \"count\": ' || t${i} || ', \"percentage\": ' || printf(\"%.2f\", (t${i} * 100.0 / analyzed_count)) || '}' FROM tiers"
-        
-        if [ -z "$sql_json_rows" ]; then
-            sql_json_rows="$this_json_select"
-        else
-            sql_json_rows="${sql_json_rows} UNION ALL SELECT ',' UNION ALL $this_json_select"
-        fi
+        sql_text_rows="${sql_text_rows} SELECT printf(\"%-${max_len}s : \", \"${labels[$i]}\") || printf(\"%6.2f%%\", (t${i} * 100.0 / analyzed_count)) || \"  (\" || t${i} || \")\" FROM combined_metrics;"
+        this_json="SELECT '{\"label\": \"${labels[$i]}\", \"count\": ' || t${i} || ', \"percentage\": ' || printf(\"%.2f\", (t${i} * 100.0 / analyzed_count)) || '}' FROM combined_metrics"
+        [ -z "$sql_json_rows" ] && sql_json_rows="$this_json" || sql_json_rows="${sql_json_rows} UNION ALL SELECT ',' UNION ALL $this_json"
     done
 
-    # --- SQL EXECUTION ---
+    # --- SQL OUTPUT SELECTORS ---
     if [ "$JSON_OUTPUT" = false ]; then
         echo "========================================================="
         echo "              Pi-hole Latency Analysis v$VERSION"
@@ -313,13 +200,13 @@ generate_report() {
         echo "---------------------------------------------------------"
         
         OUTPUT_SQL="
-        SELECT \"Total Queries         : \" || total_queries FROM math_check;
-        SELECT \"Unsuccessful Queries  : \" || invalid_count || \" (\" || printf(\"%.1f\", (invalid_count * 100.0 / total_queries)) || \"%) \" FROM math_check;
-        SELECT \"Total Valid Queries   : \" || valid_count FROM math_check;
-        SELECT \"Blocked Queries       : \" || blocked_count || \" (\" || printf(\"%.1f\", (blocked_count * 100.0 / valid_count)) || \"%) \" FROM math_check;
-        SELECT \"Other/Ignored Queries : \" || ignored_count || \" (\" || printf(\"%.1f\", (ignored_count * 100.0 / valid_count)) || \"%) \" FROM math_check WHERE ignored_count > 0;
-        SELECT \"Analyzed Queries      : \" || analyzed_count || \" (\" || printf(\"%.1f\", (analyzed_count * 100.0 / valid_count)) || \"%) \" FROM math_check;
-        SELECT \"Average Latency       : \" || printf(\"%.2f ms\", (total_duration * 1000.0 / analyzed_count)) FROM math_check WHERE analyzed_count > 0;
+        SELECT \"Total Queries         : \" || total_queries FROM combined_metrics;
+        SELECT \"Unsuccessful Queries  : \" || invalid_count || \" (\" || printf(\"%.1f\", (invalid_count * 100.0 / total_queries)) || \"%) \" FROM combined_metrics;
+        SELECT \"Total Valid Queries   : \" || valid_count FROM combined_metrics;
+        SELECT \"Blocked Queries       : \" || blocked_count || \" (\" || printf(\"%.1f\", (blocked_count * 100.0 / valid_count)) || \"%) \" FROM combined_metrics;
+        SELECT \"Other/Ignored Queries : \" || ignored_count || \" (\" || printf(\"%.1f\", (ignored_count * 100.0 / valid_count)) || \"%) \" FROM combined_metrics WHERE ignored_count > 0;
+        SELECT \"Analyzed Queries      : \" || analyzed_count || \" (\" || printf(\"%.1f\", (analyzed_count * 100.0 / valid_count)) || \"%) \" FROM combined_metrics;
+        SELECT \"Average Latency       : \" || printf(\"%.2f ms\", (total_duration * 1000.0 / analyzed_count)) FROM combined_metrics WHERE analyzed_count > 0;
         SELECT \"Median  Latency       : \" || printf(\"%.2f ms\", (reply_time * 1000.0)) FROM analyzed_times LIMIT 1 OFFSET (SELECT (COUNT(*) - 1) / 2 FROM analyzed_times);
         SELECT \"95th Percentile       : \" || printf(\"%.2f ms\", (reply_time * 1000.0)) FROM analyzed_times LIMIT 1 OFFSET (SELECT CAST((COUNT(*) * 0.95) - 1 AS INT) FROM analyzed_times);
         SELECT \"\";
@@ -346,95 +233,65 @@ generate_report() {
                 '\"p95\": ' || (SELECT printf(\"%.2f\", reply_time * 1000.0) FROM analyzed_times LIMIT 1 OFFSET (SELECT CAST((COUNT(*) * 0.95) - 1 AS INT) FROM analyzed_times)) ||
             '}, ' ||
             '\"tiers\": [' 
-        FROM math_check;
-        
+        FROM combined_metrics;
         $sql_json_rows ; 
-        
         SELECT ']}' ;"
     fi
 
+    # --- OPTIMIZED SQL EXECUTION ---
+    # PRAGMA temp_store = MEMORY: Forces temp tables to RAM (huge speedup on SD cards)
+    # PRAGMA journal_mode = OFF: Disables rollback journal for temp operations
     sqlite3 "$DBfile" <<EOF
 .mode list
 .headers off
+PRAGMA temp_store = MEMORY;
+PRAGMA journal_mode = OFF;
+PRAGMA synchronous = OFF;
+
+/* 1. FILTER: Create a working set of data (needed for P95 sorting) */
 CREATE TEMP TABLE raw_data AS
     SELECT status, reply_time 
     FROM queries 
     WHERE timestamp >= $MIN_TIMESTAMP $SQL_DOMAIN_CLAUSE; 
 
-CREATE TEMP TABLE stats AS
+/* 2. AGGREGATE: Calculate Stats AND Tiers in ONE PASS (Speed Optimization) */
+CREATE TEMP TABLE combined_metrics AS
     SELECT 
         COUNT(*) as total_queries,
         SUM(CASE WHEN reply_time IS NULL THEN 1 ELSE 0 END) as invalid_count,
         SUM(CASE WHEN reply_time IS NOT NULL THEN 1 ELSE 0 END) as valid_count,
         SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_BLOCKED_DEF THEN 1 ELSE 0 END) as blocked_count,
         SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_STATUS_FILTER THEN 1 ELSE 0 END) as analyzed_count,
-        SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_STATUS_FILTER THEN reply_time ELSE 0.0 END) as total_duration
+        SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_STATUS_FILTER THEN reply_time ELSE 0.0 END) as total_duration,
+        /* Ignored count calculation: (Valid - Blocked - Analyzed) */
+        (SUM(CASE WHEN reply_time IS NOT NULL THEN 1 ELSE 0 END) - 
+         SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_BLOCKED_DEF THEN 1 ELSE 0 END) - 
+         SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_STATUS_FILTER THEN 1 ELSE 0 END)) as ignored_count,
+        $sql_tier_columns
     FROM raw_data;
 
+/* 3. SORT: Create sorted view for Median/P95 */
 CREATE TEMP TABLE analyzed_times AS
     SELECT reply_time 
     FROM raw_data 
     WHERE reply_time IS NOT NULL AND $SQL_STATUS_FILTER
     ORDER BY reply_time ASC;
 
-CREATE TEMP TABLE math_check AS
-    SELECT 
-        total_queries, invalid_count, valid_count, blocked_count, analyzed_count, total_duration,
-        (valid_count - blocked_count - analyzed_count) as ignored_count
-    FROM stats;
-
-CREATE TEMP TABLE tiers AS
-    SELECT analyzed_count, $sql_case_columns
-    FROM raw_data, stats
-    WHERE reply_time IS NOT NULL AND $SQL_STATUS_FILTER;
-
 $OUTPUT_SQL
 EOF
 }
 
-# --- 9. OUTPUT HANDLING ---
+# --- 9. OUTPUT ---
 if [ -n "$OUTPUT_FILE" ]; then
-    
-    # 1. Handle SAVE_DIR from config
-    # Only append dir if OUTPUT_FILE is not absolute (does not start with /) AND SAVE_DIR is set
-    if [[ "$OUTPUT_FILE" != /* ]] && [ -n "$SAVE_DIR" ]; then
-        mkdir -p "$SAVE_DIR"
-        OUTPUT_FILE="${SAVE_DIR}/${OUTPUT_FILE}"
-    fi
-    
-    # 2. Handle Timestamp Injection (-ts)
-    if [ "$ADD_TIMESTAMP" = true ]; then
-        timestamp=$(date "+%Y-%m-%d_%H%M")
-        if [[ "$OUTPUT_FILE" == *.* ]]; then
-            extension="${OUTPUT_FILE##*.}"
-            base="${OUTPUT_FILE%.*}"
-            OUTPUT_FILE="${base}_${timestamp}.${extension}"
-        else
-            OUTPUT_FILE="${OUTPUT_FILE}_${timestamp}"
-        fi
-    fi
-
-    # 3. Handle Sequential Naming (-seq)
+    [[ "$OUTPUT_FILE" != /* ]] && [ -n "$SAVE_DIR" ] && mkdir -p "$SAVE_DIR" && OUTPUT_FILE="${SAVE_DIR}/${OUTPUT_FILE}"
+    [ "$ADD_TIMESTAMP" = true ] && TS=$(date "+%Y-%m-%d_%H%M") && OUTPUT_FILE="${OUTPUT_FILE%.*}_${TS}.${OUTPUT_FILE##*.}"
     if [ "$SEQUENTIAL" = true ] && [ -f "$OUTPUT_FILE" ]; then
-        if [[ "$OUTPUT_FILE" == *.* ]]; then
-            extension="${OUTPUT_FILE##*.}"
-            base="${OUTPUT_FILE%.*}"
-            ext_str=".$extension"
-        else
-            base="$OUTPUT_FILE"
-            ext_str=""
-        fi
-
-        counter=1
-        while [ -f "${base}_${counter}${ext_str}" ]; do
-            ((counter++))
-        done
-        OUTPUT_FILE="${base}_${counter}${ext_str}"
+        BASE="${OUTPUT_FILE%.*}"; EXT="${OUTPUT_FILE##*.}"; CNT=1
+        while [ -f "${BASE}_${CNT}.${EXT}" ]; do ((CNT++)); done
+        OUTPUT_FILE="${BASE}_${CNT}.${EXT}"
     fi
-
-    # 4. Execute
     generate_report | tee "$OUTPUT_FILE"
-    if [ "$JSON_OUTPUT" = false ]; then echo "Results saved to: $OUTPUT_FILE"; fi
+    [ "$JSON_OUTPUT" = false ] && echo "Results saved to: $OUTPUT_FILE"
 else
     generate_report
 fi
