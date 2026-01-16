@@ -3,25 +3,22 @@
 A lightweight Bash script to analyze your Pi-hole's DNS response times. It reads directly from the FTL database to visualize how fast your local DNS is resolving queries.
 
 ## Features
-
-* **Dynamic Tiers:** Define your own latency buckets (e.g., <1ms, 1-10ms, >100ms).
-* **Time Filtering:** Analyze the last 24h, 7d, or any custom duration.
-* **Smart Metrics:** Automatically calculates **Average**, **Median**, and **95th Percentile** latency.
-* **JSON Output:** Export data in raw JSON format for dashboards (Home Assistant, Node-RED, etc.).
-* **Dual Output:** View human-readable text on screen even while saving raw JSON to a file.
-* **Silent Mode:** Run completely silently for cron jobs or background tasks.
-* **Domain Filtering:** Supports **Wildcards** (`*`, `?`) with two modes:
-* **Partial Match:** Search for any domain containing a pattern.
-* **Exact Match:** Analyze a specific domain pattern and its subdomains only.
-
-
-* **Configuration Profiles:** Define default arguments inside the config file to create preset "Profiles" that override CLI flags.
-* **Sequential Saving:** Automatically number your saved reports (e.g., `report_1.txt`) to prevent overwrites.
-* **Flexible Paths:** Load configurations and save reports to **any folder** on your system.
-* **Query Modes:** Isolate **Upstream** (Internet) latency from **Local** (Pi-hole Cache) latency.
+- **Dynamic Tiers:** Define your own latency buckets (e.g., <1ms, 1-10ms, >100ms).
+- **Time Filtering:** Analyze the last 24h, 7d, or any custom duration.
+- **Smart Metrics:** Automatically calculates **Average**, **Median**, and **95th Percentile** latency.
+- **JSON Output:** Export data in raw JSON format for dashboards (Home Assistant, Node-RED, etc.).
+- **Dual Output:** View human-readable text on screen even while saving raw JSON to a file.
+- **Silent Mode:** Run completely silently for cron jobs or background tasks.
+- **Domain Filtering:** Supports **Wildcards** (`*`, `?`) with two modes:
+  - **Partial Match:** Search for any domain containing a pattern.
+  - **Exact Match:** Analyze a specific domain pattern and its subdomains only.
+- **Configuration Profiles:** Define default arguments inside the config file to create preset "Profiles" that override CLI flags.
+- **Sequential Saving:** Automatically number your saved reports (e.g., `report_1.txt`) to prevent overwrites.
+- **Flexible Paths:** Load configurations and save reports to **any folder** on your system.
+- **Query Modes:** Isolate **Upstream** (Internet) latency from **Local** (Pi-hole Cache) latency.
 
 <p align="center">
-<img src="pihole-latency-stats.png" alt="Pi-hole Stats Screenshot">
+  <img src="pihole-latency-stats.png" alt="Pi-hole Stats Screenshot">
 </p>
 
 ## Installation
@@ -29,11 +26,10 @@ A lightweight Bash script to analyze your Pi-hole's DNS response times. It reads
 **Requires sqlite3**
 
 1. Download the script:
-```bash
-wget -O pihole_stats.sh https://github.com/panoc/pihole-latency-stats/releases/download/v2.2/pihole_stats.sh
+   ```bash
+   wget -O pihole_stats.sh [https://github.com/panoc/pihole-latency-stats/releases/download/v2.2/pihole_stats.sh](https://github.com/panoc/pihole-latency-stats/releases/download/v2.2/pihole_stats.sh)
 
 ```
-
 
 2. Make it executable:
 ```bash
@@ -208,14 +204,17 @@ sudo ./pihole_stats.sh -c "/home/pi/configs/google_stats.conf"
 You can turn a config file into a "Profile" by defining arguments inside the file itself.
 
 1. Edit your custom config file (e.g., `google.conf`).
-2. Add the `CONFIG_ARGS` variable:
+2. Add the `CONFIG_ARGS` variable.
+3. Run the script with just the `-c` flag. The script will automatically apply all arguments from the file, ignoring any other CLI flags.
+
+**Important: Handling Spaces in Arguments**
+If your arguments contain spaces (like filenames), wrap the **entire variable in single quotes** (`'`) so the double quotes inside are read correctly.
+
 ```bash
-CONFIG_ARGS="-h24 -edm google.gr -j -f google_results.json"
+# Correct way to handle filenames with spaces:
+CONFIG_ARGS='-j -f "my google stats.json" -h24'
 
 ```
-
-
-3. Run the script with just the `-c` flag. The script will automatically apply all arguments from the file, ignoring any other CLI flags.
 
 ### Advanced Filtering (Modes & Flags)
 
@@ -262,14 +261,15 @@ On the first run, the script creates `pihole_stats.conf` in the same directory. 
 SAVE_DIR="/home/pi/pihole_reports"
 
 # Default arguments to always run (optional)
-# CONFIG_ARGS="-up -24h"
+# If using filenames with spaces, use single quotes on the outside:
+# CONFIG_ARGS='-up -24h -f "my stats.json"'
 
 # Your custom latency buckets
 L01="0.5"
 L02="20"
-
 ...
 
 ```
+
 
 ![GitHub all releases](https://img.shields.io/github/downloads/panoc/pihole-latency-stats/total)
