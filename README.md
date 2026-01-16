@@ -9,7 +9,7 @@ A lightweight Bash script to analyze your Pi-hole's DNS response times. It reads
 - **JSON Output:** Export data in raw JSON format for dashboards (Home Assistant, Node-RED, etc.).
 - **Domain Filtering:** Two modes to analyze specific sites (Partial Match vs. Exact Match).
 - **Sequential Saving:** Automatically number your saved reports (e.g., `report_1.txt`) to prevent overwrites.
-- **Flexible Paths:** Load configurations and save reports to **any folder** on your system (e.g., `/mnt/backup/` or `/home/pi/logs/`).
+- **Flexible Paths:** Load configurations and save reports to **any folder** on your system.
 - **Query Modes:** Isolate **Upstream** (Internet) latency from **Local** (Pi-hole Cache) latency.
 
 <p align="center">
@@ -45,6 +45,8 @@ sudo ./pihole_stats.sh
 
 Run the script using `sudo` (required to read the Pi-hole database). You can mix and match arguments in any order.
 
+> **Tip:** If your file paths or filenames contain spaces, wrap them in quotes (e.g., `-f "My Report.txt"`).
+
 ### Basic Usage
 
 **Analyze All Time (Default)**
@@ -55,12 +57,7 @@ sudo ./pihole_stats.sh
 ```
 
 **Get Help**
-Run with `-h` to see a full menu of commands and examples.
-
-```bash
-sudo ./pihole_stats.sh --help
-
-```
+Run `sudo ./pihole_stats.sh --help` to see a full list of commands and examples.
 
 ### Time Filtering
 
@@ -80,7 +77,7 @@ sudo ./pihole_stats.sh -7d
 
 ### Saving Output (Files & Logs)
 
-You can save the output to a file using the `-f` flag. You can use **absolute paths** to save files to specific folders.
+You can save the output to a file using the `-f` flag. You can use absolute paths to save files to specific folders.
 
 **Basic Save (Overwrites if exists)**
 
@@ -89,11 +86,10 @@ sudo ./pihole_stats.sh -24h -f report.txt
 
 ```
 
-**Save to a specific folder**
-You can provide a full path to save the report anywhere.
+**Save to a specific folder (with spaces)**
 
 ```bash
-sudo ./pihole_stats.sh -f /home/pi/documents/dns_reports/weekly.txt
+sudo ./pihole_stats.sh -f "/home/pi/My Documents/dns_reports/weekly.txt"
 
 ```
 
@@ -166,7 +162,7 @@ sudo ./pihole_stats.sh -edm netflix.com
 
 ### Configuration Management (Advanced)
 
-The script uses `pihole_stats.conf` by default, but you can create and load custom configuration files. You can use full paths to store configs anywhere.
+The script uses `pihole_stats.conf` by default, but you can create and load custom configuration files.
 
 **Create a new config file (`-mc`)**
 Generates a fresh configuration file at the specified path.
