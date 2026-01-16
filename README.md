@@ -150,12 +150,6 @@ sudo ./pihole_stats.sh -edm netflix.com
 
 ```
 
-**Help command**
-
-Use sudo ./pihole_stats.sh -24h `-h` or  `--help` flag.
-
-
-
 ### Advanced Filtering (Modes & Flags)
 
 You can isolate specific types of queries to troubleshoot where latency is coming from.
@@ -178,6 +172,10 @@ sudo ./pihole_stats.sh -up -nx -24h -j -f upstream_report.json
 sudo ./pihole_stats.sh -db /mnt/user/appdata/pihole/pihole-FTL.db
 
 ```
+
+### Help command
+
+Run sudo ./pihole_stats.sh `-h` or `--help` to see a full list of commands and examples.
 
 ## Understanding the Metrics
 
