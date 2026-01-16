@@ -91,7 +91,6 @@ sudo ./pihole_stats.sh -24h -f report.txt -seq
 
 ```
 
-```markdown
 ### Saving to File & Timestamps
 
 You can save the output to a file using the `-f` flag.
