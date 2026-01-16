@@ -269,3 +269,4 @@ L01="0.5"
 L02="20"
 ...
 
+![GitHub all releases](https://img.shields.io/github/downloads/panoc/pihole-latency-stats/total)
