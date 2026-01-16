@@ -55,7 +55,7 @@ sudo ./pihole_stats.sh
 ```
 
 **Get Help**
-Run with `-h` to see a full menu of commands and examples.
+Run with `-h` or `--help` to see a full menu of commands and examples.
 
 ```bash
 sudo ./pihole_stats.sh --help
