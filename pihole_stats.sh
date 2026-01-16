@@ -1,14 +1,29 @@
 #!/bin/bash
-VERSION="1.6"
+VERSION="1.7"
 
-# --- 1. CONFIGURATION MANAGEMENT ---
+# --- 1. SETUP & DEFAULTS ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
-CONFIG_FILE="$SCRIPT_DIR/pihole_stats.conf"
+DEFAULT_CONFIG="$SCRIPT_DIR/pihole_stats.conf"
+CONFIG_TO_LOAD="$DEFAULT_CONFIG"
 
-# Function to create default config if missing
-create_default_config() {
-    echo "Config file not found. Creating default at: $CONFIG_FILE"
-    cat <<EOF > "$CONFIG_FILE"
+# Default Internal Values (Overridden by config or flags)
+DBfile="/etc/pihole/pihole-FTL.db"
+SAVE_DIR=""
+# Default Tiers (In case config is missing/empty)
+L01="0.009"; L02="0.1"; L03="1"; L04="10"; L05="50"
+L06="100"; L07="300"; L08="1000"
+
+# --- 2. CONFIGURATION GENERATOR ---
+create_config() {
+    local target_file="$1"
+    
+    if [ -f "$target_file" ]; then
+        echo "Error: File '$target_file' already exists. Will not overwrite."
+        exit 1
+    fi
+
+    echo "Creating configuration file at: $target_file"
+    cat <<EOF > "$target_file"
 # ================= PI-HOLE STATS CONFIGURATION =================
 # Database Path
 DBfile="/etc/pihole/pihole-FTL.db"
@@ -39,18 +54,62 @@ L18=""
 L19=""
 L20=""
 EOF
-    chmod 644 "$CONFIG_FILE"
+    chmod 644 "$target_file"
+    echo "Done. You can now use it with: -c \"$target_file\""
 }
 
-if [ ! -f "$CONFIG_FILE" ]; then
-    create_default_config
-fi
-source "$CONFIG_FILE"
+# --- 3. PRE-SCAN FOR CONFIG FLAGS ---
+# We scan arguments early to handle -c (Load) and -mc (Make) before anything else.
+# This ensures config settings are loaded BEFORE other flags might override them.
 
-# --- 2. HELP FUNCTION ---
+args_preserve=("$@") # Keep original arguments safe
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -c|--config)
+            shift
+            if [ -z "$1" ]; then echo "Error: -c requires a filename."; exit 1; fi
+            CONFIG_TO_LOAD="$1"
+            shift
+            ;;
+        -mc|--make-config)
+            shift
+            if [ -z "$1" ]; then echo "Error: -mc requires a filename."; exit 1; fi
+            create_config "$1"
+            exit 0
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
+# Reset arguments for Main Loop
+set -- "${args_preserve[@]}"
+
+# --- 4. LOAD CONFIGURATION ---
+if [ -f "$CONFIG_TO_LOAD" ]; then
+    # Source the requested config
+    source "$CONFIG_TO_LOAD"
+elif [ "$CONFIG_TO_LOAD" == "$DEFAULT_CONFIG" ]; then
+    # If default is missing, create it automatically (First Run experience)
+    create_config "$DEFAULT_CONFIG" > /dev/null
+    source "$DEFAULT_CONFIG"
+else
+    # User requested a custom config (-c) but it doesn't exist
+    echo "Error: Configuration file not found: $CONFIG_TO_LOAD"
+    exit 1
+fi
+
+# --- 5. HELP FUNCTION ---
 show_help() {
     echo "Pi-hole Latency Analysis v$VERSION"
     echo "Usage: sudo ./pihole_stats.sh [OPTIONS]"
+    echo ""
+    echo "  -- CONFIGURATION --"
+    echo "  -c <file>          : Load a specific config file (Default: pihole_stats.conf)."
+    echo "  -mc <file>         : Make (Generate) a new config file and exit."
+    echo "  -db <path>         : Override Database path."
     echo ""
     echo "  -- TIME FILTERING --"
     echo "  -24h, -7d, -1h     : Analyze the last X hours (h) or days (d)."
@@ -69,18 +128,19 @@ show_help() {
     echo "  -seq               : Sequential naming (report_1.txt) to prevent overwrites."
     echo "  -ts, --timestamp   : Add timestamp to filename (report_2026-01-16.txt)."
     echo ""
-    echo "  -- CONFIGURATION --"
-    echo "  -db <path>         : Use a custom database path."
+    echo "  -- OTHER --"
     echo "  -h, --help         : Show this help message."
     echo ""
     echo "Examples:"
-    echo "  sudo ./pihole_stats.sh -24h"
-    echo "  sudo ./pihole_stats.sh -up -nx -f report.json -j -ts"
-    echo "  sudo ./pihole_stats.sh -edm netflix.com -7d"
+    echo "  # Create a new config for Google stats"
+    echo "  sudo ./pihole_stats.sh -mc stats_google.conf"
+    echo ""
+    echo "  # Run using that config"
+    echo "  sudo ./pihole_stats.sh -c stats_google.conf -up -24h"
     exit 0
 }
 
-# --- 3. ARGUMENT PARSING ---
+# --- 6. MAIN ARGUMENT PARSING ---
 MIN_TIMESTAMP=0
 TIME_LABEL="All Time"
 MODE="DEFAULT"
@@ -95,6 +155,9 @@ ADD_TIMESTAMP=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         -h|--help) show_help ;;
+        
+        # Already handled in pre-scan, just skip them here
+        -c|--config|-mc|--make-config) shift; shift ;;
         
         -up) MODE="UPSTREAM"; shift ;;
         -pi) MODE="PIHOLE"; shift ;;
@@ -140,7 +203,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# --- 4. CONSTRUCT SQL FILTERS ---
+# --- 7. CONSTRUCT SQL FILTERS ---
 SQL_BLOCKED_DEF="status IN (1, 4, 5, 9, 10, 11)"
 BASE_DEFAULT="2, 3, 6, 7, 8, 12, 13, 14, 15"
 BASE_UPSTREAM="2, 6, 7, 8"
@@ -177,7 +240,7 @@ if ! command -v sqlite3 &> /dev/null; then
     exit 1
 fi
 
-# --- 5. MAIN GENERATION FUNCTION ---
+# --- 8. MAIN GENERATION FUNCTION ---
 generate_report() {
     CURRENT_DATE=$(date "+%Y-%m-%d %H:%M:%S")
 
@@ -326,10 +389,11 @@ $OUTPUT_SQL
 EOF
 }
 
-# --- 6. OUTPUT HANDLING ---
+# --- 9. OUTPUT HANDLING ---
 if [ -n "$OUTPUT_FILE" ]; then
     
     # 1. Handle SAVE_DIR from config
+    # Only append dir if OUTPUT_FILE is not absolute (does not start with /) AND SAVE_DIR is set
     if [[ "$OUTPUT_FILE" != /* ]] && [ -n "$SAVE_DIR" ]; then
         mkdir -p "$SAVE_DIR"
         OUTPUT_FILE="${SAVE_DIR}/${OUTPUT_FILE}"
