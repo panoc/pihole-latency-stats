@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION="1.2"
+VERSION="1.3"
 
 # --- 1. CONFIGURATION MANAGEMENT ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
@@ -12,6 +12,11 @@ create_default_config() {
 # ================= PI-HOLE STATS CONFIGURATION =================
 # Database Path
 DBfile="/etc/pihole/pihole-FTL.db"
+
+# Default Save Directory
+# If set (e.g., "/home/pi/stats_logs"), files from -f will be saved here.
+# If empty, files are saved in the current working directory.
+SAVE_DIR=""
 
 # Latency Tiers (Upper Limits in Milliseconds)
 L01="0.009"
@@ -52,6 +57,7 @@ OUTPUT_FILE=""
 JSON_OUTPUT=false
 DOMAIN_FILTER=""
 SQL_DOMAIN_CLAUSE=""
+SEQUENTIAL=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -59,12 +65,12 @@ while [[ $# -gt 0 ]]; do
         -pi) MODE="PIHOLE"; shift ;;
         -nx) EXCLUDE_NX=true; shift ;;
         -j|--json) JSON_OUTPUT=true; shift ;;
+        -seq) SEQUENTIAL=true; shift ;;
         -db) shift; DBfile="$1"; shift ;;
         -dm|--domain)
             shift
             if [ -z "$1" ]; then echo "Error: -dm requires a domain name."; exit 1; fi
             DOMAIN_FILTER="$1"
-            # CHANGED: Use LIKE with % wildcards for partial matching (e.g. 'google' finds 'www.google.com')
             SQL_DOMAIN_CLAUSE="AND domain LIKE '%$DOMAIN_FILTER%'"
             shift
             ;;
@@ -274,7 +280,37 @@ $OUTPUT_SQL
 EOF
 }
 
+# --- 5. OUTPUT HANDLING ---
 if [ -n "$OUTPUT_FILE" ]; then
+    
+    # 1. Handle SAVE_DIR from config
+    # If OUTPUT_FILE is not an absolute path (doesn't start with /) AND SAVE_DIR is set
+    if [[ "$OUTPUT_FILE" != /* ]] && [ -n "$SAVE_DIR" ]; then
+        # Ensure directory exists
+        mkdir -p "$SAVE_DIR"
+        OUTPUT_FILE="${SAVE_DIR}/${OUTPUT_FILE}"
+    fi
+
+    # 2. Handle Sequential Naming (-seq)
+    if [ "$SEQUENTIAL" = true ] && [ -f "$OUTPUT_FILE" ]; then
+        # Extract extension
+        if [[ "$OUTPUT_FILE" == *.* ]]; then
+            extension="${OUTPUT_FILE##*.}"
+            base="${OUTPUT_FILE%.*}"
+            ext_str=".$extension"
+        else
+            base="$OUTPUT_FILE"
+            ext_str=""
+        fi
+
+        counter=1
+        while [ -f "${base}_${counter}${ext_str}" ]; do
+            ((counter++))
+        done
+        OUTPUT_FILE="${base}_${counter}${ext_str}"
+    fi
+
+    # 3. Execute
     generate_report | tee "$OUTPUT_FILE"
     if [ "$JSON_OUTPUT" = false ]; then echo "Results saved to: $OUTPUT_FILE"; fi
 else
