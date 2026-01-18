@@ -12,7 +12,7 @@ This tool helps you answer: *"Is my DNS slow because of my upstream provider, or
 * **Tiered Grouping:** Groups queries into buckets (e.g., <1ms, 10-50ms) to easily spot outliers.
 * **Domain Filtering:** Supports **Wildcards** (`*`, `?`).
 * **Unbound Integration:** Auto-detects Unbound to report Cache Hit Ratio, Prefetch jobs, and Cache Memory Usage.
-* **Flexible Filtering:** Filter by time (last 24h, 7 days), status (Blocked/Forwarded), or specific domains.
+* **Flexible Filtering:** Filter by time (last 24h, 7 days), specific date ranges (`-from`, `-to`), status (Blocked/Forwarded), or specific domains.
 * **JSON Support:** Native JSON output for dashboards (Home Assistant, Grafana, Node-RED).
 * **Resilient:** Handles database locks (waits if Pi-hole is writing) and strictly validates arguments.
 * **Configuration Profiles:** Define default arguments inside the config file to create preset "Profiles" that override CLI flags.
@@ -36,6 +36,7 @@ wget -O pihole_stats.sh https://github.com/panoc/pihole-latency-stats/releases/l
 chmod +x pihole_stats.sh
 sudo ./pihole_stats.sh
 
+
 ```
 
 ## Usage
@@ -45,6 +46,7 @@ You can run the script with various flags to customize the analysis.
 ```bash
 sudo ./pihole_stats.sh [OPTIONS]
 
+
 ```
 
 ### 🕒 Time Filters
@@ -53,6 +55,8 @@ sudo ./pihole_stats.sh [OPTIONS]
 * `-7d`  : Analyze the last 7 days.
 * `-<number>h` : Analyze the last N hours (e.g., `-12h`).
 * `-<number>d` : Analyze the last N days (e.g., `-30d`).
+* `-from "date"` : Start analysis from a specific date/time (e.g., `-from "yesterday"`, `-from "2024-01-01"`).
+* `-to "date"` : End analysis at a specific date/time (e.g., `-to "2 hours ago"`, `-to "14:00"`).
 
 ### 🔍 Query Modes
 
@@ -70,6 +74,7 @@ sudo ./pihole_stats.sh [OPTIONS]
 
 * `-unb` : **Force Unbound.** Appends Unbound statistics to the standard Pi-hole report. (Note: The script usually auto-detects this).
 * `-unb-only` : **Unbound Only.** Runs *only* the Unbound health check. This skips the Pi-hole database entirely (faster, useful for checking Unbound status).
+* `-no-unb` : **Disable Unbound.** Forces the script to skip Unbound checks, even if detected or enabled in config.
 
 ### 💾 Output & Automation
 
@@ -99,10 +104,9 @@ The script attempts to **Auto-Detect** Unbound. It checks if:
 
 1. Unbound is installed and the service is active.
 2. Pi-hole is configured to use it.
+
 * **Pi-hole v5:** Checks `setupVars.conf` or `dnsmasq.d` configs.
 * **Pi-hole v6:** Checks `pihole.toml` for localhost upstreams.
-
-
 
 ### ⚠️ Prerequisite for Memory Stats
 
@@ -110,13 +114,14 @@ To see the **Memory Usage** breakdown (Message vs RRset cache), you must enable 
 
 1. Edit your config: `sudo nano /etc/unbound/unbound.conf` (or your specific config file).
 2. Add `extended-statistics: yes` inside the `server:` block:
+
 ```yaml
 server:
     # ... other settings ...
     extended-statistics: yes
 
-```
 
+```
 
 3. Restart Unbound: `sudo service unbound restart`
 
@@ -133,8 +138,6 @@ server:
 * **Tier 0 (< 0.1ms):** Instant answers. Usually cached by Pi-hole or Blocked.
 * **Tier 1-3 (1ms - 50ms):** Healthy upstream responses.
 * **Tier 6+ (> 300ms):** Slow queries. These might be timeouts or packet loss.
-
-
 
 ### Unbound Metrics
 
@@ -153,6 +156,7 @@ crontab -e
 # Add this line:
 55 23 * * * /home/pi/pihole_stats.sh -24h -j -f "daily_stats.json" -rt 30 -s
 
+
 ```
 
 ## Example Output
@@ -162,7 +166,7 @@ crontab -e
 
 ```text
 =========================================================
-              Pi-hole Latency Analysis v2.6
+              Pi-hole Latency Analysis v2.7
 =========================================================
 Analysis Date : 2026-01-18 12:30:00
 Time Period   : Last 24 Hours
@@ -194,13 +198,14 @@ Config File       : /etc/unbound/unbound.conf
 Total Queries     : 145,200
 Cache Hits        : 112,750 (77.65%)
 Cache Misses      : 32,450 (22.35%)
-Prefetch Jobs     : 15,200
+Prefetch Jobs     : 15,200 (13.48% of Hits)
 
        --- Cache Memory Usage (Used / Limit) ---
 Message Cache     : 4.20 MB / 50.00 MB   (8.40%)
 RRset Cache       : 8.50 MB / 100.00 MB  (8.50%)
 =========================================================
 Total Execution Time: 0.85s
+
 
 ```
 
@@ -211,7 +216,7 @@ Total Execution Time: 0.85s
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "date": "2026-01-18 12:30:00",
   "time_period": "Last 24 Hours",
   "mode": "All Normal Queries",
@@ -245,9 +250,13 @@ Total Execution Time: 0.85s
   }
 }
 
+
 ```
 
 </details>
 
 
 
+```
+
+```
