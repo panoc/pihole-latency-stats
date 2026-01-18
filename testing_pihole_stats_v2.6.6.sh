@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION="2.6.6"
+VERSION="2.6.6 Testing"
 # Capture start time immediately
 START_TS=$(date +%s.%N 2>/dev/null)
 # Fallback for systems without nanosecond support
@@ -150,7 +150,7 @@ show_help() {
     echo "  -rt <days>       : Auto-delete files older than <days>"
     echo "  -unb, -unb-only  : Unbound Stats (Append / Standalone)"
     echo "  -no-unb          : Disable Unbound Stats (Override auto/config)"
-    echo "  -snap            : Snapshot Mode (Safe copy of DB to temp)"
+    echo "  -snap            : Snapshot Mode (Safe copy of DB to /tmp)"
     echo "  -c, -mc          : Config (Load/Make)"
     echo "  -db              : Custom DB path"
     exit 0
@@ -517,17 +517,24 @@ generate_report() {
         SELECT '___JSON_END___';"
     fi
 
-    # --- HANDLE SNAPSHOT MODE (v2.7.4) ---
+    # --- HANDLE SNAPSHOT MODE (v2.7.5) ---
     ACTIVE_DB="$DBfile"
     SNAPSHOT_FILE="/tmp/pihole_stats_snap_$$.db"
     
     if [ "$USE_SNAPSHOT" = true ]; then
         if [ "$SILENT_MODE" = false ]; then echo "📸 Checking memory safety..." >&2; fi
         
-        # Check DB Size (in KB)
-        DB_SIZE=$(du -k "$DBfile" | cut -f1)
-        # Check Free RAM (in KB) - MemAvailable is safer than MemFree
-        FREE_RAM=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
+        # Check DB Size (in KB) using awk to grab just the number
+        DB_SIZE=$(du -k "$DBfile" | awk '{print $1}')
+        
+        # FIX v2.7.5: Check Available RAM (in KB) using 'free -k'
+        # $7 is 'Available' column in standard Linux free output (Total, Used, Free, Shared, Buff/Cache, Available)
+        FREE_RAM=$(free -k | awk '/^Mem:/{print $7}')
+        
+        # Fallback to /proc/meminfo if free fails or returns empty
+        if [ -z "$FREE_RAM" ]; then
+             FREE_RAM=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
+        fi
         
         # Safety Buffer: 50MB (51200 KB)
         REQUIRED_RAM=$((DB_SIZE + 51200))
@@ -663,7 +670,7 @@ if [ -n "$SAVE_DIR" ] && [ -d "$SAVE_DIR" ] && [ -n "$MAX_LOG_AGE" ] && [[ "$MAX
     fi
 fi
 
-# Execution Timer (v2.7.4)
+# Execution Timer (v2.7.5)
 END_TS=$(date +%s.%N 2>/dev/null)
 if [[ "$END_TS" == *N* ]] || [ -z "$END_TS" ]; then END_TS=$(date +%s); fi
 
