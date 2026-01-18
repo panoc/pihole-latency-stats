@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION="2.6"
+VERSION="2.7"
 # Capture start time immediately
 START_TS=$(date +%s.%N 2>/dev/null)
 # Fallback for systems without nanosecond support
@@ -16,6 +16,11 @@ SAVE_DIR=""
 CONFIG_ARGS=""
 MAX_LOG_AGE=""  # Default: Disabled
 ENABLE_UNBOUND="auto" # Options: auto, true, false
+
+# Default Time Range (0 to Now)
+QUERY_START=0
+QUERY_END=$(date +%s)
+TIME_LABEL="All Time"
 
 # Default Tiers
 L01="0.009"; L02="0.1"; L03="1"; L04="10"; L05="50"
@@ -109,7 +114,8 @@ fi
 show_help() {
     echo "Pi-hole Latency Analysis v$VERSION"
     echo "Usage: sudo ./pihole_stats.sh [OPTIONS]"
-    echo "  -24h, -7d        : Time filter"
+    echo "  -24h, -7d        : Quick time filter"
+    echo "  -from, -to       : Custom date range (e.g. -from 'yesterday')"
     echo "  -up, -pi, -nx    : Query modes (Upstream/Pihole/NoBlock)"
     echo "  -dm, -edm        : Domain filter (Partial/Exact)"
     echo "  -f <file>        : Save to file"
@@ -118,14 +124,13 @@ show_help() {
     echo "  -seq, -ts        : Naming (Sequential/Timestamp)"
     echo "  -rt <days>       : Auto-delete files older than <days>"
     echo "  -unb, -unb-only  : Unbound Stats (Append / Standalone)"
+    echo "  -no-unb          : Disable Unbound Stats (Override auto/config)"
     echo "  -c, -mc          : Config (Load/Make)"
     echo "  -db              : Custom DB path"
     exit 0
 }
 
 # --- 6. ARGUMENTS ---
-MIN_TIMESTAMP=0
-TIME_LABEL="All Time"
 MODE="DEFAULT"
 EXCLUDE_NX=false
 OUTPUT_FILE=""
@@ -135,7 +140,7 @@ DOMAIN_FILTER=""
 SQL_DOMAIN_CLAUSE=""
 SEQUENTIAL=false
 ADD_TIMESTAMP=false
-SHOW_UNBOUND="default" # default, yes, only
+SHOW_UNBOUND="default" # default, yes, only, no
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -152,6 +157,24 @@ while [[ $# -gt 0 ]]; do
         -rt|--retention) shift; MAX_LOG_AGE="$1"; shift ;;
         -unb) SHOW_UNBOUND="yes"; shift ;;
         -unb-only) SHOW_UNBOUND="only"; shift ;;
+        -no-unb) SHOW_UNBOUND="no"; shift ;; # New flag to disable Unbound
+        
+        # --- DATE PARSING ---
+        -from|--start)
+            shift; [ -z "$1" ] && echo "❌ Error: Missing value for -from" >&2 && exit 1
+            if ! TS=$(date -d "$1" +%s 2>/dev/null); then
+                echo "❌ Error: Invalid date format '$1'" >&2; exit 1
+            fi
+            QUERY_START="$TS"; TIME_LABEL="Custom Range"
+            shift ;;
+        -to|--end)
+            shift; [ -z "$1" ] && echo "❌ Error: Missing value for -to" >&2 && exit 1
+            if ! TS=$(date -d "$1" +%s 2>/dev/null); then
+                echo "❌ Error: Invalid date format '$1'" >&2; exit 1
+            fi
+            QUERY_END="$TS"; TIME_LABEL="Custom Range"
+            shift ;;
+
         -dm|--domain)
             shift; [ -z "$1" ] && exit 1
             RAW_INPUT="$1"; DOMAIN_FILTER="$RAW_INPUT"
@@ -178,10 +201,19 @@ while [[ $# -gt 0 ]]; do
             if [[ "$UNIT" == "h" ]]; then OFFSET=$((VALUE * 3600)); TIME_LABEL="Last $VALUE Hours"
             elif [[ "$UNIT" == "d" ]]; then OFFSET=$((VALUE * 86400)); TIME_LABEL="Last $VALUE Days"
             fi
-            MIN_TIMESTAMP=$(( $(date +%s) - OFFSET )); shift ;;
+            # Set Start Time relative to Now
+            QUERY_START=$(( $(date +%s) - OFFSET ))
+            shift ;;
         *) echo "❌ Error: Unknown argument '$1'"; exit 1 ;;
     esac
 done
+
+# Update Label if Custom Date was used
+if [ "$TIME_LABEL" == "Custom Range" ]; then
+    readable_start=$(date -d @$QUERY_START "+%Y-%m-%d %H:%M")
+    readable_end=$(date -d @$QUERY_END "+%Y-%m-%d %H:%M")
+    TIME_LABEL="$readable_start to $readable_end"
+fi
 
 # --- 7. SQL FILTERS ---
 SQL_BLOCKED_DEF="status IN (1, 4, 5, 9, 10, 11)"
@@ -204,6 +236,9 @@ fi
 
 # --- 8. UNBOUND STATS GENERATOR ---
 generate_unbound_report() {
+    # Force Disable Check
+    if [ "$SHOW_UNBOUND" == "no" ]; then return; fi
+
     # Check Requirements
     if ! command -v unbound-control &> /dev/null; then
         [ "$SHOW_UNBOUND" == "only" ] && echo "Error: unbound-control not found." && exit 1
@@ -263,7 +298,6 @@ generate_unbound_report() {
         PCT_MISS="0.00"
     fi
 
-    # --- NEW: Calculate Prefetch Ratio ---
     if [ "$U_HITS" -gt 0 ]; then
         PCT_PREFETCH=$(awk "BEGIN {printf \"%.2f\", ($U_PREFETCH / $U_HITS) * 100}")
     else
@@ -434,7 +468,7 @@ PRAGMA temp_store = MEMORY;
 PRAGMA journal_mode = OFF;
 PRAGMA synchronous = OFF;
 
-CREATE TEMP TABLE raw_data AS SELECT status, reply_time FROM queries WHERE timestamp >= $MIN_TIMESTAMP $SQL_DOMAIN_CLAUSE; 
+CREATE TEMP TABLE raw_data AS SELECT status, reply_time FROM queries WHERE timestamp >= $QUERY_START AND timestamp <= $QUERY_END $SQL_DOMAIN_CLAUSE; 
 CREATE TEMP TABLE combined_metrics AS
     SELECT COUNT(*) as total_queries,
         SUM(CASE WHEN reply_time IS NULL THEN 1 ELSE 0 END) as invalid_count,
@@ -525,7 +559,7 @@ if [ -n "$SAVE_DIR" ] && [ -d "$SAVE_DIR" ] && [ -n "$MAX_LOG_AGE" ] && [[ "$MAX
     fi
 fi
 
-# Execution Timer (v2.6)
+# Execution Timer (v2.8)
 END_TS=$(date +%s.%N 2>/dev/null)
 if [[ "$END_TS" == *N* ]] || [ -z "$END_TS" ]; then END_TS=$(date +%s); fi
 
