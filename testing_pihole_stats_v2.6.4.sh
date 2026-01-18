@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION="2.7.2"
+VERSION="2.6.4"
 # Capture start time immediately
 START_TS=$(date +%s.%N 2>/dev/null)
 # Fallback for systems without nanosecond support
