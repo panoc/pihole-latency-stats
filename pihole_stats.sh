@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION="2.7"
+VERSION="2.9.1"
 # Capture start time immediately
 START_TS=$(date +%s.%N 2>/dev/null)
 # Fallback for systems without nanosecond support
@@ -16,6 +16,8 @@ SAVE_DIR=""
 CONFIG_ARGS=""
 MAX_LOG_AGE=""  # Default: Disabled
 ENABLE_UNBOUND="auto" # Options: auto, true, false
+DEFAULT_FROM="" # New in v2.9.1
+DEFAULT_TO=""   # New in v2.9.1
 
 # Default Time Range (0 to Now)
 QUERY_START=0
@@ -52,6 +54,12 @@ MAX_LOG_AGE=""
 # true  : Always append Unbound stats.
 # false : Never show Unbound stats (unless -unb is used).
 ENABLE_UNBOUND="auto"
+
+# Custom Date Range Defaults (Optional)
+# Use natural language (e.g. "yesterday", "today 00:00") or dates.
+# CLI flags (-24h, -from) will OVERRIDE these settings.
+DEFAULT_FROM=""
+DEFAULT_TO=""
 
 # [OPTIONAL] Default Arguments
 # If set, these arguments will REPLACE any CLI flags.
@@ -102,6 +110,25 @@ elif [ "$CONFIG_TO_LOAD" == "$DEFAULT_CONFIG" ]; then
     create_config "$DEFAULT_CONFIG" > /dev/null; source "$DEFAULT_CONFIG"
 else 
     echo "Error: Config not found: $CONFIG_TO_LOAD"; exit 1; 
+fi
+
+# Apply Config Defaults for Date Ranges (v2.9.1)
+if [ -n "$DEFAULT_FROM" ]; then
+    if TS=$(date -d "$DEFAULT_FROM" +%s 2>/dev/null); then
+        QUERY_START="$TS"
+        TIME_LABEL="Custom Range"
+    else
+        echo "⚠️ Warning: Invalid DEFAULT_FROM in config: '$DEFAULT_FROM'" >&2
+    fi
+fi
+
+if [ -n "$DEFAULT_TO" ]; then
+    if TS=$(date -d "$DEFAULT_TO" +%s 2>/dev/null); then
+        QUERY_END="$TS"
+        TIME_LABEL="Custom Range"
+    else
+        echo "⚠️ Warning: Invalid DEFAULT_TO in config: '$DEFAULT_TO'" >&2
+    fi
 fi
 
 if [ -n "$CONFIG_ARGS" ]; then
@@ -157,7 +184,7 @@ while [[ $# -gt 0 ]]; do
         -rt|--retention) shift; MAX_LOG_AGE="$1"; shift ;;
         -unb) SHOW_UNBOUND="yes"; shift ;;
         -unb-only) SHOW_UNBOUND="only"; shift ;;
-        -no-unb) SHOW_UNBOUND="no"; shift ;; # New flag to disable Unbound
+        -no-unb) SHOW_UNBOUND="no"; shift ;;
         
         # --- DATE PARSING ---
         -from|--start)
@@ -203,6 +230,8 @@ while [[ $# -gt 0 ]]; do
             fi
             # Set Start Time relative to Now
             QUERY_START=$(( $(date +%s) - OFFSET ))
+            # If user uses quick flags (-24h), reset End Time to Now (in case config set a static end time)
+            QUERY_END=$(date +%s)
             shift ;;
         *) echo "❌ Error: Unknown argument '$1'"; exit 1 ;;
     esac
@@ -559,7 +588,7 @@ if [ -n "$SAVE_DIR" ] && [ -d "$SAVE_DIR" ] && [ -n "$MAX_LOG_AGE" ] && [[ "$MAX
     fi
 fi
 
-# Execution Timer (v2.8)
+# Execution Timer (v2.9.1)
 END_TS=$(date +%s.%N 2>/dev/null)
 if [[ "$END_TS" == *N* ]] || [ -z "$END_TS" ]; then END_TS=$(date +%s); fi
 
