@@ -1,5 +1,9 @@
 #!/bin/bash
-VERSION="2.5"
+VERSION="2.6"
+# Capture start time immediately
+START_TS=$(date +%s.%N 2>/dev/null)
+# Fallback for systems without nanosecond support
+if [[ "$START_TS" == *N* ]] || [ -z "$START_TS" ]; then START_TS=$(date +%s); fi
 
 # --- 1. SETUP & DEFAULTS ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
@@ -11,6 +15,7 @@ DBfile="/etc/pihole/pihole-FTL.db"
 SAVE_DIR=""
 CONFIG_ARGS=""
 MAX_LOG_AGE=""  # Default: Disabled
+ENABLE_UNBOUND="auto" # Options: auto, true, false
 
 # Default Tiers
 L01="0.009"; L02="0.1"; L03="1"; L04="10"; L05="50"
@@ -34,10 +39,14 @@ SAVE_DIR=""
 
 # Auto-Delete Old Reports (Retention Policy)
 # Delete files in SAVE_DIR older than X days.
-# Leave empty to disable.
-# WARNING: This deletes ALL files in SAVE_DIR older than the limit.
 # Example: MAX_LOG_AGE="30"
 MAX_LOG_AGE=""
+
+# Unbound Integration
+# auto  : Check if Unbound is installed & used by Pi-hole.
+# true  : Always append Unbound stats.
+# false : Never show Unbound stats (unless -unb is used).
+ENABLE_UNBOUND="auto"
 
 # [OPTIONAL] Default Arguments
 # If set, these arguments will REPLACE any CLI flags.
@@ -105,9 +114,10 @@ show_help() {
     echo "  -dm, -edm        : Domain filter (Partial/Exact)"
     echo "  -f <file>        : Save to file"
     echo "  -j               : Enable JSON output"
-    echo "  -s, --silent     : No screen output (for cron)"
+    echo "  -s, --silent     : No screen output"
     echo "  -seq, -ts        : Naming (Sequential/Timestamp)"
     echo "  -rt <days>       : Auto-delete files older than <days>"
+    echo "  -unb, -unb-only  : Unbound Stats (Append / Standalone)"
     echo "  -c, -mc          : Config (Load/Make)"
     echo "  -db              : Custom DB path"
     exit 0
@@ -125,6 +135,7 @@ DOMAIN_FILTER=""
 SQL_DOMAIN_CLAUSE=""
 SEQUENTIAL=false
 ADD_TIMESTAMP=false
+SHOW_UNBOUND="default" # default, yes, only
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -139,6 +150,8 @@ while [[ $# -gt 0 ]]; do
         -ts|--timestamp) ADD_TIMESTAMP=true; shift ;;
         -db) shift; DBfile="$1"; shift ;;
         -rt|--retention) shift; MAX_LOG_AGE="$1"; shift ;;
+        -unb) SHOW_UNBOUND="yes"; shift ;;
+        -unb-only) SHOW_UNBOUND="only"; shift ;;
         -dm|--domain)
             shift; [ -z "$1" ] && exit 1
             RAW_INPUT="$1"; DOMAIN_FILTER="$RAW_INPUT"
@@ -153,12 +166,20 @@ while [[ $# -gt 0 ]]; do
             shift ;;
         -f) shift; OUTPUT_FILE="$1"; shift ;;
         -*)
-            INPUT="${1#-}"; UNIT="${INPUT: -1}"; VALUE="${INPUT:0:${#INPUT}-1}"
+            # ARGUMENT VALIDATION
+            INPUT="${1#-}"
+            if [[ ! "$INPUT" =~ ^[0-9]+[hd]$ ]]; then
+                echo "❌ Error: Unknown or invalid argument '$1'" >&2
+                exit 1
+            fi
+
+            # Proceed if valid time filter
+            UNIT="${INPUT: -1}"; VALUE="${INPUT:0:${#INPUT}-1}"
             if [[ "$UNIT" == "h" ]]; then OFFSET=$((VALUE * 3600)); TIME_LABEL="Last $VALUE Hours"
             elif [[ "$UNIT" == "d" ]]; then OFFSET=$((VALUE * 86400)); TIME_LABEL="Last $VALUE Days"
             fi
             MIN_TIMESTAMP=$(( $(date +%s) - OFFSET )); shift ;;
-        *) echo "Unknown option: $1"; exit 1 ;;
+        *) echo "❌ Error: Unknown argument '$1'"; exit 1 ;;
     esac
 done
 
@@ -181,8 +202,115 @@ fi
 
 [ ! -x "$(command -v sqlite3)" ] && echo "Error: sqlite3 required" && exit 1
 
-# --- 8. GENERATE REPORT ---
+# --- 8. UNBOUND STATS GENERATOR ---
+generate_unbound_report() {
+    # Check Requirements
+    if ! command -v unbound-control &> /dev/null; then
+        [ "$SHOW_UNBOUND" == "only" ] && echo "Error: unbound-control not found." && exit 1
+        return
+    fi
+    
+    # Auto-Detection Logic
+    if [ "$SHOW_UNBOUND" == "default" ]; then
+        if [ "$ENABLE_UNBOUND" == "false" ]; then return; fi
+        if [ "$ENABLE_UNBOUND" == "auto" ]; then
+            IS_RUNNING=false
+            if systemctl is-active --quiet unbound 2>/dev/null; then IS_RUNNING=true;
+            elif pgrep -x unbound >/dev/null; then IS_RUNNING=true; fi
+            if [ "$IS_RUNNING" = false ]; then return; fi
+
+            IS_CONFIGURED=false
+            if grep -qE "PIHOLE_DNS_.*=(127\.0\.0\.1|::1)" /etc/pihole/setupVars.conf 2>/dev/null; then IS_CONFIGURED=true; fi
+            if grep -qE "^server=(127\.0\.0\.1|::1)" /etc/dnsmasq.d/*.conf 2>/dev/null; then IS_CONFIGURED=true; fi
+            if [ -f "/etc/pihole/pihole.toml" ]; then
+                if grep -F "127.0.0.1" /etc/pihole/pihole.toml >/dev/null 2>&1; then IS_CONFIGURED=true; fi
+                if grep -F "::1" /etc/pihole/pihole.toml >/dev/null 2>&1; then IS_CONFIGURED=true; fi
+            fi
+
+            if [ "$IS_CONFIGURED" = false ]; then return; fi
+        fi
+    fi
+
+    # Retrieve Stats
+    # Explicit config path to avoid missing SSL cert errors
+    RAW_STATS=$(unbound-control -c /etc/unbound/unbound.conf stats_noreset 2>&1)
+    
+    if [ -z "$RAW_STATS" ] || echo "$RAW_STATS" | grep -q "error"; then
+         if [ "$SHOW_UNBOUND" == "only" ]; then
+             echo "Error: Could not retrieve Unbound stats."
+             echo "Unbound Output: $RAW_STATS"
+             exit 1
+         fi
+         return
+    fi
+
+    # Parse Metrics
+    U_HITS=$(echo "$RAW_STATS" | grep '^total.num.cachehits=' | cut -d= -f2)
+    U_MISS=$(echo "$RAW_STATS" | grep '^total.num.cachemiss=' | cut -d= -f2)
+    U_PREFETCH=$(echo "$RAW_STATS" | grep '^total.num.prefetch=' | cut -d= -f2)
+    
+    U_HITS=${U_HITS:-0}
+    U_MISS=${U_MISS:-0}
+    U_PREFETCH=${U_PREFETCH:-0}
+    
+    U_TOTAL=$((U_HITS + U_MISS))
+
+    if [ "$U_TOTAL" -gt 0 ]; then
+        PCT_HIT=$(awk "BEGIN {printf \"%.2f\", ($U_HITS / $U_TOTAL) * 100}")
+        PCT_MISS=$(awk "BEGIN {printf \"%.2f\", ($U_MISS / $U_TOTAL) * 100}")
+    else
+        PCT_HIT="0.00"
+        PCT_MISS="0.00"
+    fi
+
+    U_MEM_MSG=$(echo "$RAW_STATS" | grep '^mem.cache.message=' | cut -d= -f2)
+    U_MEM_RR=$(echo "$RAW_STATS" | grep '^mem.cache.rrset=' | cut -d= -f2)
+    U_MEM_MSG=${U_MEM_MSG:-0}
+    U_MEM_RR=${U_MEM_RR:-0}
+
+    CONF_LIMIT_MSG=$(unbound-checkconf -o msg-cache-size 2>/dev/null || echo "4194304")
+    CONF_LIMIT_RR=$(unbound-checkconf -o rrset-cache-size 2>/dev/null || echo "8388608")
+
+    to_mb() {
+        awk "BEGIN {printf \"%.2f\", $1 / 1024 / 1024}"
+    }
+    
+    MEM_MSG_PCT=$(awk "BEGIN {printf \"%.2f\", ($U_MEM_MSG / $CONF_LIMIT_MSG) * 100}")
+    MEM_RR_PCT=$(awk "BEGIN {printf \"%.2f\", ($U_MEM_RR / $CONF_LIMIT_RR) * 100}")
+
+    # --- OUTPUT BUILDER ---
+    
+    echo "SELECT '=========================================================';"
+    echo "SELECT '              Unbound DNS Performance';"
+    echo "SELECT '=========================================================';"
+    echo "SELECT 'Server Status     : Active (Integrated)';"
+    echo "SELECT 'Config File       : /etc/unbound/unbound.conf';"
+    echo "SELECT '---------------------------------------------------------';"
+    echo "SELECT 'Total Queries     : ' || '$U_TOTAL';"
+    echo "SELECT 'Cache Hits        : ' || '$U_HITS ($PCT_HIT%)';"
+    echo "SELECT 'Cache Misses      : ' || '$U_MISS ($PCT_MISS%)';"
+    echo "SELECT 'Prefetch Jobs     : ' || '$U_PREFETCH';"
+    echo "SELECT '';"
+    echo "SELECT '       --- Cache Memory Usage (Used / Limit) ---';"
+    echo "SELECT 'Message Cache     : ' || '$(to_mb $U_MEM_MSG) MB / $(to_mb $CONF_LIMIT_MSG) MB   ($MEM_MSG_PCT%)';"
+    echo "SELECT 'RRset Cache       : ' || '$(to_mb $U_MEM_RR) MB / $(to_mb $CONF_LIMIT_RR) MB  ($MEM_RR_PCT%)';"
+    echo "SELECT '=========================================================';"
+
+    if [ "$JSON_OUTPUT" = true ]; then
+        echo "SELECT '___JSON_UNB_START___';"
+        echo "SELECT '{ \"status\": \"active\", \"total\": $U_TOTAL, \"hits\": $U_HITS, \"miss\": $U_MISS, \"prefetch\": $U_PREFETCH, \"ratio\": $PCT_HIT, \"memory\": { \"msg\": { \"used_mb\": $(to_mb $U_MEM_MSG), \"limit_mb\": $(to_mb $CONF_LIMIT_MSG), \"percent\": $MEM_MSG_PCT }, \"rrset\": { \"used_mb\": $(to_mb $U_MEM_RR), \"limit_mb\": $(to_mb $CONF_LIMIT_RR), \"percent\": $MEM_RR_PCT } } }';"
+        echo "SELECT '___JSON_UNB_END___';"
+    fi
+}
+
+# --- 9. PIHOLE STATS GENERATOR ---
 generate_report() {
+    # Skip if Unbound-Only mode
+    if [ "$SHOW_UNBOUND" == "only" ]; then
+        generate_unbound_report
+        return
+    fi
+
     CURRENT_DATE=$(date "+%Y-%m-%d %H:%M:%S")
 
     # Sort Tiers
@@ -191,6 +319,7 @@ generate_report() {
     IFS=$'\n' sorted_limits=($(printf "%s\n" "${raw_limits[@]}" | grep -v '^$' | sort -n))
     unset IFS
 
+    # Build Dynamic SQL for Tiers
     sql_tier_columns=""
     sql_text_rows=""
     sql_json_rows=""
@@ -206,9 +335,7 @@ generate_report() {
             labels[$tier_index]="Tier ${tier_index} (${prev_limit_ms} - ${limit_ms}ms)"
             sql_logic="reply_time > $prev_limit_sec AND reply_time <= $limit_sec"
         fi
-        
         sql_tier_columns="${sql_tier_columns} SUM(CASE WHEN ${sql_logic} AND $SQL_STATUS_FILTER THEN 1 ELSE 0 END) as t${tier_index},"
-        
         prev_limit_ms="$limit_ms"; prev_limit_sec="$limit_sec"; ((tier_index++))
     done
 
@@ -220,42 +347,45 @@ generate_report() {
     max_len=$((max_len + 2))
 
     for i in "${!labels[@]}"; do
-        sql_text_rows="${sql_text_rows} SELECT printf(\"%-${max_len}s : \", \"${labels[$i]}\") || printf(\"%6.2f%%\", (t${i} * 100.0 / analyzed_count)) || \"  (\" || t${i} || \")\" FROM combined_metrics;"
-        this_json="SELECT '{\"label\": \"${labels[$i]}\", \"count\": ' || t${i} || ', \"percentage\": ' || printf(\"%.2f\", (t${i} * 100.0 / analyzed_count)) || '}' FROM combined_metrics"
+        sql_text_rows="${sql_text_rows} SELECT printf('%-${max_len}s : ', '${labels[$i]}') || printf('%6.2f%%', (t${i} * 100.0 / analyzed_count)) || '  (' || t${i} || ')' FROM combined_metrics;"
+        this_json="SELECT '{\"label\": \"${labels[$i]}\", \"count\": ' || t${i} || ', \"percentage\": ' || printf('%.2f', (t${i} * 100.0 / analyzed_count)) || '}' FROM combined_metrics"
         [ -z "$sql_json_rows" ] && sql_json_rows="$this_json" || sql_json_rows="${sql_json_rows} UNION ALL SELECT ',' UNION ALL $this_json"
     done
 
-    # --- SQL BLOCK BUILDER ---
-    
+    # SQL Strings
     TEXT_DOMAIN_ROW=""
     JSON_DOMAIN_ROW=""
     if [ -n "$DOMAIN_FILTER" ]; then
-        TEXT_DOMAIN_ROW="SELECT \"Domain Filter : $DOMAIN_FILTER\";"
+        TEXT_DOMAIN_ROW="SELECT 'Domain Filter : $DOMAIN_FILTER';"
         JSON_DOMAIN_ROW="'\"domain_filter\": \"$DOMAIN_FILTER\", ' ||"
     fi
 
+    # Capture Unbound SQL (if needed)
+    UNBOUND_SQL_BLOCK=$(generate_unbound_report)
+
     TEXT_REPORT_SQL="
-        SELECT \"=========================================================\";
-        SELECT \"              Pi-hole Latency Analysis v$VERSION\";
-        SELECT \"=========================================================\";
-        SELECT \"Analysis Date : $CURRENT_DATE\";
-        SELECT \"Time Period   : $TIME_LABEL\";
-        SELECT \"Query Mode    : $MODE_LABEL\";
+        SELECT '=========================================================';
+        SELECT '              Pi-hole Latency Analysis v$VERSION';
+        SELECT '=========================================================';
+        SELECT 'Analysis Date : $CURRENT_DATE';
+        SELECT 'Time Period   : $TIME_LABEL';
+        SELECT 'Query Mode    : $MODE_LABEL';
         $TEXT_DOMAIN_ROW
-        SELECT \"---------------------------------------------------------\";
-        SELECT \"Total Queries         : \" || total_queries FROM combined_metrics;
-        SELECT \"Unsuccessful Queries  : \" || invalid_count || \" (\" || printf(\"%.1f\", (invalid_count * 100.0 / total_queries)) || \"%) \" FROM combined_metrics;
-        SELECT \"Total Valid Queries   : \" || valid_count FROM combined_metrics;
-        SELECT \"Blocked Queries       : \" || blocked_count || \" (\" || printf(\"%.1f\", (blocked_count * 100.0 / valid_count)) || \"%) \" FROM combined_metrics;
-        SELECT \"Other/Ignored Queries : \" || ignored_count || \" (\" || printf(\"%.1f\", (ignored_count * 100.0 / valid_count)) || \"%) \" FROM combined_metrics WHERE ignored_count > 0;
-        SELECT \"Analyzed Queries      : \" || analyzed_count || \" (\" || printf(\"%.1f\", (analyzed_count * 100.0 / valid_count)) || \"%) \" FROM combined_metrics;
-        SELECT \"Average Latency       : \" || printf(\"%.2f ms\", (total_duration * 1000.0 / analyzed_count)) FROM combined_metrics WHERE analyzed_count > 0;
-        SELECT \"Median  Latency       : \" || printf(\"%.2f ms\", (reply_time * 1000.0)) FROM analyzed_times LIMIT 1 OFFSET (SELECT (COUNT(*) - 1) / 2 FROM analyzed_times);
-        SELECT \"95th Percentile       : \" || printf(\"%.2f ms\", (reply_time * 1000.0)) FROM analyzed_times LIMIT 1 OFFSET (SELECT CAST((COUNT(*) * 0.95) - 1 AS INT) FROM analyzed_times);
-        SELECT \"\";
-        SELECT \"--- Latency Distribution of Analyzed Queries ---\";
+        SELECT '---------------------------------------------------------';
+        SELECT 'Total Queries         : ' || total_queries FROM combined_metrics;
+        SELECT 'Unsuccessful Queries  : ' || invalid_count || ' (' || printf('%.1f', (invalid_count * 100.0 / total_queries)) || '%) ' FROM combined_metrics;
+        SELECT 'Total Valid Queries   : ' || valid_count FROM combined_metrics;
+        SELECT 'Blocked Queries       : ' || blocked_count || ' (' || printf('%.1f', (blocked_count * 100.0 / valid_count)) || '%) ' FROM combined_metrics;
+        SELECT 'Other/Ignored Queries : ' || ignored_count || ' (' || printf('%.1f', (ignored_count * 100.0 / valid_count)) || '%) ' FROM combined_metrics WHERE ignored_count > 0;
+        SELECT 'Analyzed Queries      : ' || analyzed_count || ' (' || printf('%.1f', (analyzed_count * 100.0 / valid_count)) || '%) ' FROM combined_metrics;
+        SELECT 'Average Latency       : ' || printf('%.2f ms', (total_duration * 1000.0 / analyzed_count)) FROM combined_metrics WHERE analyzed_count > 0;
+        SELECT 'Median  Latency       : ' || printf('%.2f ms', (reply_time * 1000.0)) FROM analyzed_times LIMIT 1 OFFSET (SELECT (COUNT(*) - 1) / 2 FROM analyzed_times);
+        SELECT '95th Percentile       : ' || printf('%.2f ms', (reply_time * 1000.0)) FROM analyzed_times LIMIT 1 OFFSET (SELECT CAST((COUNT(*) * 0.95) - 1 AS INT) FROM analyzed_times);
+        SELECT '';
+        SELECT '--- Latency Distribution of Analyzed Queries ---';
         $sql_text_rows
-        SELECT \"\";"
+        SELECT '';
+        $UNBOUND_SQL_BLOCK"
 
     JSON_REPORT_SQL=""
     if [ "$JSON_OUTPUT" = true ]; then
@@ -275,21 +405,23 @@ generate_report() {
                 '\"analyzed\": ' || analyzed_count || 
             '}, ' ||
             '\"latency\": {' ||
-                '\"average\": ' || printf(\"%.2f\", (total_duration * 1000.0 / analyzed_count)) || ', ' ||
-                '\"median\": ' || (SELECT printf(\"%.2f\", reply_time * 1000.0) FROM analyzed_times LIMIT 1 OFFSET (SELECT (COUNT(*) - 1) / 2 FROM analyzed_times)) || ', ' ||
-                '\"p95\": ' || (SELECT printf(\"%.2f\", reply_time * 1000.0) FROM analyzed_times LIMIT 1 OFFSET (SELECT CAST((COUNT(*) * 0.95) - 1 AS INT) FROM analyzed_times)) ||
+                '\"average\": ' || printf('%.2f', (total_duration * 1000.0 / analyzed_count)) || ', ' ||
+                '\"median\": ' || (SELECT printf('%.2f', reply_time * 1000.0) FROM analyzed_times LIMIT 1 OFFSET (SELECT (COUNT(*) - 1) / 2 FROM analyzed_times)) || ', ' ||
+                '\"p95\": ' || (SELECT printf('%.2f', reply_time * 1000.0) FROM analyzed_times LIMIT 1 OFFSET (SELECT CAST((COUNT(*) * 0.95) - 1 AS INT) FROM analyzed_times)) ||
             '}, ' ||
             '\"tiers\": [' 
         FROM combined_metrics;
         $sql_json_rows ; 
-        SELECT ']}' ;
+        SELECT '], \"unbound\": null' ;
+        SELECT '}' ;
         SELECT '___JSON_END___';"
     fi
 
-    # --- EXECUTE ---
+    # Execute SQLite
     sqlite3 "$DBfile" <<EOF
 .mode list
 .headers off
+.timeout 30000
 .output /dev/null
 PRAGMA temp_store = MEMORY;
 PRAGMA journal_mode = OFF;
@@ -314,7 +446,8 @@ $TEXT_REPORT_SQL
 EOF
 }
 
-# --- 9. OUTPUT HANDLING ---
+# --- 10. EXECUTION & OUTPUT ---
+
 if [ -n "$OUTPUT_FILE" ]; then
     [[ "$OUTPUT_FILE" != /* ]] && [ -n "$SAVE_DIR" ] && mkdir -p "$SAVE_DIR" && OUTPUT_FILE="${SAVE_DIR}/${OUTPUT_FILE}"
     [ "$ADD_TIMESTAMP" = true ] && TS=$(date "+%Y-%m-%d_%H%M") && OUTPUT_FILE="${OUTPUT_FILE%.*}_${TS}.${OUTPUT_FILE##*.}"
@@ -325,49 +458,75 @@ if [ -n "$OUTPUT_FILE" ]; then
     fi
 fi
 
-FULL_OUTPUT=$(generate_report)
+# Visual Feedback
+if [ "$SILENT_MODE" = false ] && [ "$SHOW_UNBOUND" != "only" ]; then
+    echo "📊 Analyzing Pi-hole database... (This may wait if FTL is busy)" >&2
+fi
 
+# Generate
+if [ "$SHOW_UNBOUND" == "only" ]; then
+    # Unbound Only: Run bash function directly (No SQLite shell needed for this part)
+    RAW_UNB=$(generate_unbound_report)
+    
+    # Robust text extraction using sed to simulate SQLite string printing
+    FULL_OUTPUT=$(echo "$RAW_UNB" | grep "SELECT" | sed -e "s/^SELECT '//" -e "s/';$//" -e "s/' || '//")
+else
+    # Full Report: Run SQLite safely
+    if ! FULL_OUTPUT=$(generate_report); then
+        echo "❌ Error: Database query failed (Locked or Corrupt). No file saved." >&2
+        exit 1
+    fi
+fi
+
+# Format JSON/Text
 if [ "$JSON_OUTPUT" = true ]; then
+    # JSON Cleanup: Merge Pihole + Unbound JSON blocks
     JSON_CONTENT=$(echo "$FULL_OUTPUT" | sed -n '/___JSON_START___/,/___JSON_END___/p' | grep -v "___JSON_")
-    TEXT_CONTENT=$(echo "$FULL_OUTPUT" | sed '/___JSON_START___/,/___JSON_END___/d')
+    
+    # Handle Unbound JSON insertion
+    UNB_JSON_PART=$(echo "$FULL_OUTPUT" | sed -n '/___JSON_UNB_START___/,/___JSON_UNB_END___/p' | grep -v "___JSON_")
+    
+    if [ -n "$UNB_JSON_PART" ]; then
+        JSON_CONTENT=$(echo "$JSON_CONTENT" | sed -e "s/___JSON_UNB_START___//g" -e "s/___JSON_UNB_END___//g" | tr -d '\n' | sed 's/  / /g')
+        JSON_CONTENT=$(echo "$JSON_CONTENT" | sed "s/\"unbound\": null/\"unbound\": $UNB_JSON_PART/")
+    fi
+    
+    TEXT_CONTENT=$(echo "$FULL_OUTPUT" | sed -e '/___JSON_START___/,/___JSON_END___/d' -e '/___JSON_UNB_START___/,/___JSON_UNB_END___/d' | grep -v "SELECT" | grep -v "___JSON_")
 else
     JSON_CONTENT=""
     TEXT_CONTENT="$FULL_OUTPUT"
 fi
 
-# FILE SAVING
+# Save & Display
 if [ -n "$OUTPUT_FILE" ]; then
-    if [ "$JSON_OUTPUT" = true ]; then
-        echo "$JSON_CONTENT" > "$OUTPUT_FILE"
-    else
-        echo "$TEXT_CONTENT" > "$OUTPUT_FILE"
-    fi
-    if [ "$SILENT_MODE" = false ]; then
-        echo "Results saved to: $OUTPUT_FILE"
-    fi
+    if [ "$JSON_OUTPUT" = true ]; then echo "$JSON_CONTENT" > "$OUTPUT_FILE"
+    else echo "$TEXT_CONTENT" > "$OUTPUT_FILE"; fi
+    if [ "$SILENT_MODE" = false ]; then echo "Results saved to: $OUTPUT_FILE"; fi
 fi
 
-# SCREEN DISPLAY
 if [ "$SILENT_MODE" = false ]; then
-    if [ -n "$OUTPUT_FILE" ] && [ "$JSON_OUTPUT" = true ]; then
-        echo "$TEXT_CONTENT"
-    elif [ -z "$OUTPUT_FILE" ] && [ "$JSON_OUTPUT" = true ]; then
-        echo "$JSON_CONTENT"
-    else
-        echo "$TEXT_CONTENT"
-    fi
+    if [ -n "$OUTPUT_FILE" ] && [ "$JSON_OUTPUT" = true ]; then echo "$TEXT_CONTENT"
+    elif [ -z "$OUTPUT_FILE" ] && [ "$JSON_OUTPUT" = true ]; then echo "$JSON_CONTENT"
+    else echo "$TEXT_CONTENT"; fi
 fi
 
-# --- 10. AUTO-DELETE OLD LOGS (New in v2.5) ---
-# Only runs if SAVE_DIR is set, exists, and MAX_LOG_AGE is a valid number
+# Auto-Delete
 if [ -n "$SAVE_DIR" ] && [ -d "$SAVE_DIR" ] && [ -n "$MAX_LOG_AGE" ] && [[ "$MAX_LOG_AGE" =~ ^[0-9]+$ ]]; then
-    # Find files older than X days in the specific directory and delete them
-    # -maxdepth 1 prevents going into subfolders (safety)
     find "$SAVE_DIR" -maxdepth 1 -type f -mtime +$MAX_LOG_AGE -delete
-    
     if [ "$SILENT_MODE" = false ]; then
-        # Check if we should report this action (only if curious about what happened)
-        # Note: 'find -delete' is silent. We assume it worked.
         echo "Auto-Clean : Deleted reports older than $MAX_LOG_AGE days from $SAVE_DIR"
     fi
 fi
+
+# Execution Timer (v2.7)
+END_TS=$(date +%s.%N 2>/dev/null)
+if [[ "$END_TS" == *N* ]] || [ -z "$END_TS" ]; then END_TS=$(date +%s); fi
+
+DURATION=$(awk "BEGIN {printf \"%.2f\", $END_TS - $START_TS}" 2>/dev/null)
+if [ -z "$DURATION" ]; then DURATION=$(( ${END_TS%.*} - ${START_TS%.*} )); fi
+
+if [ "$SILENT_MODE" = false ]; then
+    echo "Total Execution Time: ${DURATION}s" >&2
+fi
+
+exit 0
