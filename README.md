@@ -5,7 +5,6 @@ A lightweight, zero-dependency Bash script that analyzes your Pi-hole's performa
 
 This tool helps you answer: *"Is my DNS slow because of my upstream provider, or is it just my local network?"* and *"Is Unbound performing efficiently?"*
 
-![Pi-hole Stats Output](https://i.imgur.com/example_placeholder.png)
 
 ## Features
 
