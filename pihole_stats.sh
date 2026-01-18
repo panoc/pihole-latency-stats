@@ -263,6 +263,13 @@ generate_unbound_report() {
         PCT_MISS="0.00"
     fi
 
+    # --- NEW: Calculate Prefetch Ratio ---
+    if [ "$U_HITS" -gt 0 ]; then
+        PCT_PREFETCH=$(awk "BEGIN {printf \"%.2f\", ($U_PREFETCH / $U_HITS) * 100}")
+    else
+        PCT_PREFETCH="0.00"
+    fi
+
     U_MEM_MSG=$(echo "$RAW_STATS" | grep '^mem.cache.message=' | cut -d= -f2)
     U_MEM_RR=$(echo "$RAW_STATS" | grep '^mem.cache.rrset=' | cut -d= -f2)
     U_MEM_MSG=${U_MEM_MSG:-0}
@@ -289,7 +296,7 @@ generate_unbound_report() {
     echo "SELECT 'Total Queries     : ' || '$U_TOTAL';"
     echo "SELECT 'Cache Hits        : ' || '$U_HITS ($PCT_HIT%)';"
     echo "SELECT 'Cache Misses      : ' || '$U_MISS ($PCT_MISS%)';"
-    echo "SELECT 'Prefetch Jobs     : ' || '$U_PREFETCH';"
+    echo "SELECT 'Prefetch Jobs     : ' || '$U_PREFETCH ($PCT_PREFETCH% of Hits)';"
     echo "SELECT '';"
     echo "SELECT '       --- Cache Memory Usage (Used / Limit) ---';"
     echo "SELECT 'Message Cache     : ' || '$(to_mb $U_MEM_MSG) MB / $(to_mb $CONF_LIMIT_MSG) MB   ($MEM_MSG_PCT%)';"
@@ -518,7 +525,7 @@ if [ -n "$SAVE_DIR" ] && [ -d "$SAVE_DIR" ] && [ -n "$MAX_LOG_AGE" ] && [[ "$MAX
     fi
 fi
 
-# Execution Timer (v2.7)
+# Execution Timer (v2.6)
 END_TS=$(date +%s.%N 2>/dev/null)
 if [[ "$END_TS" == *N* ]] || [ -z "$END_TS" ]; then END_TS=$(date +%s); fi
 
