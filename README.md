@@ -32,7 +32,7 @@ This tool helps you answer: *"Is my DNS slow because of my upstream provider, or
 Download and run:
 
 ```bash
-wget -O pihole_stats.sh [https://github.com/panoc/pihole-latency-stats/releases/latest/download/pihole_stats.sh](https://github.com/panoc/pihole-latency-stats/releases/latest/download/pihole_stats.sh)
+wget -O pihole_stats.sh https://github.com/panoc/pihole-latency-stats/releases/latest/download/pihole_stats.sh
 chmod +x pihole_stats.sh
 sudo ./pihole_stats.sh
 
