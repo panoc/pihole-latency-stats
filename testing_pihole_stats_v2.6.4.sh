@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION="2.6.4"
+VERSION="2.7.2"
 # Capture start time immediately
 START_TS=$(date +%s.%N 2>/dev/null)
 # Fallback for systems without nanosecond support
@@ -468,4 +468,185 @@ generate_report() {
         SELECT 'Total Queries         : ' || total_queries FROM combined_metrics;
         SELECT 'Unsuccessful Queries  : ' || invalid_count || ' (' || printf('%.1f', (invalid_count * 100.0 / total_queries)) || '%) ' FROM combined_metrics;
         SELECT 'Total Valid Queries   : ' || valid_count FROM combined_metrics;
-        SELECT 'Blocked Queries       : ' ||
+        SELECT 'Blocked Queries       : ' || blocked_count || ' (' || printf('%.1f', (blocked_count * 100.0 / valid_count)) || '%) ' FROM combined_metrics;
+        SELECT 'Other/Ignored Queries : ' || ignored_count || ' (' || printf('%.1f', (ignored_count * 100.0 / valid_count)) || '%) ' FROM combined_metrics WHERE ignored_count > 0;
+        SELECT 'Analyzed Queries      : ' || analyzed_count || ' (' || printf('%.1f', (analyzed_count * 100.0 / valid_count)) || '%) ' FROM combined_metrics;
+        SELECT 'Average Latency       : ' || printf('%.2f ms', (total_duration * 1000.0 / analyzed_count)) FROM combined_metrics WHERE analyzed_count > 0;
+        SELECT 'Median  Latency       : ' || printf('%.2f ms', (reply_time * 1000.0)) FROM analyzed_times LIMIT 1 OFFSET (SELECT (COUNT(*) - 1) / 2 FROM analyzed_times);
+        SELECT '95th Percentile       : ' || printf('%.2f ms', (reply_time * 1000.0)) FROM analyzed_times LIMIT 1 OFFSET (SELECT CAST((COUNT(*) * 0.95) - 1 AS INT) FROM analyzed_times);
+        SELECT '';
+        SELECT '--- Latency Distribution of Analyzed Queries ---';
+        $sql_text_rows
+        SELECT '';
+        $UNBOUND_SQL_BLOCK"
+
+    JSON_REPORT_SQL=""
+    if [ "$JSON_OUTPUT" = true ]; then
+        JSON_REPORT_SQL="
+        SELECT '___JSON_START___';
+        SELECT '{' ||
+            '\"version\": \"$VERSION\", ' ||
+            '\"date\": \"$CURRENT_DATE\", ' ||
+            '\"time_period\": \"$TIME_LABEL\", ' ||
+            '\"mode\": \"$MODE_LABEL\", ' ||
+            $JSON_DOMAIN_ROW
+            '\"stats\": {' ||
+                '\"total_queries\": ' || total_queries || ', ' ||
+                '\"unsuccessful\": ' || invalid_count || ', ' ||
+                '\"total_valid\": ' || valid_count || ', ' ||
+                '\"blocked\": ' || blocked_count || ', ' ||
+                '\"analyzed\": ' || analyzed_count || 
+            '}, ' ||
+            '\"latency\": {' ||
+                '\"average\": ' || printf('%.2f', (total_duration * 1000.0 / analyzed_count)) || ', ' ||
+                '\"median\": ' || (SELECT printf('%.2f', reply_time * 1000.0) FROM analyzed_times LIMIT 1 OFFSET (SELECT (COUNT(*) - 1) / 2 FROM analyzed_times)) || ', ' ||
+                '\"p95\": ' || (SELECT printf('%.2f', reply_time * 1000.0) FROM analyzed_times LIMIT 1 OFFSET (SELECT CAST((COUNT(*) * 0.95) - 1 AS INT) FROM analyzed_times)) ||
+            '}, ' ||
+            '\"tiers\": [' 
+        FROM combined_metrics;
+        $sql_json_rows ; 
+        SELECT '], \"unbound\": null' ;
+        SELECT '}' ;
+        SELECT '___JSON_END___';"
+    fi
+
+    # --- HANDLE SNAPSHOT MODE (v2.7.1) ---
+    ACTIVE_DB="$DBfile"
+    SNAPSHOT_FILE="/tmp/pihole_stats_snap_$$.db"
+    
+    if [ "$USE_SNAPSHOT" = true ]; then
+        if [ "$SILENT_MODE" = false ]; then echo "📸 Creating database snapshot ($SNAPSHOT_FILE)..." >&2; fi
+        
+        # Safe online backup using sqlite3 command
+        if ! sqlite3 "$DBfile" ".backup '$SNAPSHOT_FILE'"; then
+            echo "❌ Error: Failed to create snapshot. Is the disk full?" >&2
+            exit 1
+        fi
+        ACTIVE_DB="$SNAPSHOT_FILE"
+    fi
+
+    # Execute SQLite
+    sqlite3 "$ACTIVE_DB" <<EOF
+.mode list
+.headers off
+.timeout 30000
+.output /dev/null
+PRAGMA temp_store = MEMORY;
+PRAGMA journal_mode = OFF;
+PRAGMA synchronous = OFF;
+
+CREATE TEMP TABLE raw_data AS SELECT status, reply_time FROM queries WHERE timestamp >= $QUERY_START AND timestamp <= $QUERY_END $SQL_DOMAIN_CLAUSE; 
+CREATE TEMP TABLE combined_metrics AS
+    SELECT COUNT(*) as total_queries,
+        SUM(CASE WHEN reply_time IS NULL THEN 1 ELSE 0 END) as invalid_count,
+        SUM(CASE WHEN reply_time IS NOT NULL THEN 1 ELSE 0 END) as valid_count,
+        SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_BLOCKED_DEF THEN 1 ELSE 0 END) as blocked_count,
+        SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_STATUS_FILTER THEN 1 ELSE 0 END) as analyzed_count,
+        SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_STATUS_FILTER THEN reply_time ELSE 0.0 END) as total_duration,
+        (SUM(CASE WHEN reply_time IS NOT NULL THEN 1 ELSE 0 END) - SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_BLOCKED_DEF THEN 1 ELSE 0 END) - SUM(CASE WHEN reply_time IS NOT NULL AND $SQL_STATUS_FILTER THEN 1 ELSE 0 END)) as ignored_count,
+        $sql_tier_columns
+    FROM raw_data;
+CREATE TEMP TABLE analyzed_times AS SELECT reply_time FROM raw_data WHERE reply_time IS NOT NULL AND $SQL_STATUS_FILTER ORDER BY reply_time ASC;
+
+.output stdout
+$JSON_REPORT_SQL
+$TEXT_REPORT_SQL
+EOF
+
+    # Clean up snapshot if used
+    if [ "$USE_SNAPSHOT" = true ] && [ -f "$SNAPSHOT_FILE" ]; then
+        rm "$SNAPSHOT_FILE"
+    fi
+}
+
+# --- 10. EXECUTION & OUTPUT ---
+
+if [ -n "$OUTPUT_FILE" ]; then
+    [[ "$OUTPUT_FILE" != /* ]] && [ -n "$SAVE_DIR" ] && mkdir -p "$SAVE_DIR" && OUTPUT_FILE="${SAVE_DIR}/${OUTPUT_FILE}"
+    [ "$ADD_TIMESTAMP" = true ] && TS=$(date "+%Y-%m-%d_%H%M") && OUTPUT_FILE="${OUTPUT_FILE%.*}_${TS}.${OUTPUT_FILE##*.}"
+    if [ "$SEQUENTIAL" = true ] && [ -f "$OUTPUT_FILE" ]; then
+        BASE="${OUTPUT_FILE%.*}"; EXT="${OUTPUT_FILE##*.}"; CNT=1
+        while [ -f "${BASE}_${CNT}.${EXT}" ]; do ((CNT++)); done
+        OUTPUT_FILE="${BASE}_${CNT}.${EXT}"
+    fi
+fi
+
+# Visual Feedback
+if [ "$SILENT_MODE" = false ] && [ "$SHOW_UNBOUND" != "only" ]; then
+    echo "📊 Analyzing Pi-hole database... (This may wait if FTL is busy)" >&2
+fi
+
+# Generate
+if [ "$SHOW_UNBOUND" == "only" ]; then
+    # Unbound Only: Run bash function directly
+    # FIX v2.7.2: Catch and display errors (e.g. missing command) instead of silence
+    RAW_UNB=$(generate_unbound_report)
+    
+    # Check if the output looks like an Error message
+    if echo "$RAW_UNB" | grep -q "Error:"; then
+        echo "$RAW_UNB"
+        exit 1
+    fi
+    
+    # Robust text extraction
+    FULL_OUTPUT=$(echo "$RAW_UNB" | grep "SELECT" | sed -e "s/^SELECT '//" -e "s/';$//" -e "s/' || '//")
+else
+    # Full Report: Run SQLite safely
+    if ! FULL_OUTPUT=$(generate_report); then
+        echo "❌ Error: Database query failed (Locked or Corrupt). No file saved." >&2
+        exit 1
+    fi
+fi
+
+# Format JSON/Text
+if [ "$JSON_OUTPUT" = true ]; then
+    # JSON Cleanup: Merge Pihole + Unbound JSON blocks
+    JSON_CONTENT=$(echo "$FULL_OUTPUT" | sed -n '/___JSON_START___/,/___JSON_END___/p' | grep -v "___JSON_")
+    
+    # Handle Unbound JSON insertion
+    UNB_JSON_PART=$(echo "$FULL_OUTPUT" | sed -n '/___JSON_UNB_START___/,/___JSON_UNB_END___/p' | grep -v "___JSON_")
+    
+    if [ -n "$UNB_JSON_PART" ]; then
+        JSON_CONTENT=$(echo "$JSON_CONTENT" | sed -e "s/___JSON_UNB_START___//g" -e "s/___JSON_UNB_END___//g" | tr -d '\n' | sed 's/  / /g')
+        JSON_CONTENT=$(echo "$JSON_CONTENT" | sed "s/\"unbound\": null/\"unbound\": $UNB_JSON_PART/")
+    fi
+    
+    TEXT_CONTENT=$(echo "$FULL_OUTPUT" | sed -e '/___JSON_START___/,/___JSON_END___/d' -e '/___JSON_UNB_START___/,/___JSON_UNB_END___/d' | grep -v "SELECT" | grep -v "___JSON_")
+else
+    JSON_CONTENT=""
+    TEXT_CONTENT="$FULL_OUTPUT"
+fi
+
+# Save & Display
+if [ -n "$OUTPUT_FILE" ]; then
+    if [ "$JSON_OUTPUT" = true ]; then echo "$JSON_CONTENT" > "$OUTPUT_FILE"
+    else echo "$TEXT_CONTENT" > "$OUTPUT_FILE"; fi
+    if [ "$SILENT_MODE" = false ]; then echo "Results saved to: $OUTPUT_FILE"; fi
+fi
+
+if [ "$SILENT_MODE" = false ]; then
+    if [ -n "$OUTPUT_FILE" ] && [ "$JSON_OUTPUT" = true ]; then echo "$TEXT_CONTENT"
+    elif [ -z "$OUTPUT_FILE" ] && [ "$JSON_OUTPUT" = true ]; then echo "$JSON_CONTENT"
+    else echo "$TEXT_CONTENT"; fi
+fi
+
+# Auto-Delete
+if [ -n "$SAVE_DIR" ] && [ -d "$SAVE_DIR" ] && [ -n "$MAX_LOG_AGE" ] && [[ "$MAX_LOG_AGE" =~ ^[0-9]+$ ]]; then
+    find "$SAVE_DIR" -maxdepth 1 -type f -mtime +$MAX_LOG_AGE -delete
+    if [ "$SILENT_MODE" = false ]; then
+        echo "Auto-Clean : Deleted reports older than $MAX_LOG_AGE days from $SAVE_DIR"
+    fi
+fi
+
+# Execution Timer (v2.7.2)
+END_TS=$(date +%s.%N 2>/dev/null)
+if [[ "$END_TS" == *N* ]] || [ -z "$END_TS" ]; then END_TS=$(date +%s); fi
+
+DURATION=$(awk "BEGIN {printf \"%.2f\", $END_TS - $START_TS}" 2>/dev/null)
+if [ -z "$DURATION" ]; then DURATION=$(( ${END_TS%.*} - ${START_TS%.*} )); fi
+
+if [ "$SILENT_MODE" = false ]; then
+    echo "Total Execution Time: ${DURATION}s" >&2
+fi
+
+exit 0
