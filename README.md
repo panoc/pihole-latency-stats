@@ -6,13 +6,14 @@ A lightweight, zero-dependency Bash script that analyzes your **Pi-hole**'s perf
 
 This tool helps you answer: *"Is my DNS slow because of my upstream provider, or is it just my local network?"* and *"Is Unbound performing efficiently?"*
 
-
 ## Features
 
 * **Latency Analysis:** Calculates Average, Median, and 95th Percentile latency.
 * **Tiered Grouping:** Groups queries into buckets (e.g., <1ms, 10-50ms) to easily spot outliers.
 * **Domain Filtering:** Supports **Wildcards** (`*`, `?`).
 * **Unbound Integration:** Auto-detects Unbound to report Cache Hit Ratio, Prefetch jobs, and Cache Memory Usage.
+* **Snapshot Mode:** Safely copies the database before analysis to prevent "Database Locked" errors. Includes **Smart RAM Safety** to choose between RAM (fast) or Disk (safe) snapshots automatically.
+* **Locale Safe:** Forces standard formatting to prevent crashes on non-English systems (fixes comma vs dot decimal issues).
 * **Flexible Filtering:** Filter by time (last 24h, 7 days), specific date ranges (`-from`, `-to`), status (Blocked/Forwarded), or specific domains.
 * **JSON Support:** Native JSON output for dashboards (Home Assistant, Grafana, Node-RED).
 * **Resilient:** Handles database locks (waits if Pi-hole is writing) and strictly validates arguments.
@@ -37,7 +38,6 @@ wget -O pihole_stats.sh https://github.com/panoc/pihole-latency-stats/releases/l
 chmod +x pihole_stats.sh
 sudo ./pihole_stats.sh
 
-
 ```
 
 ## Usage
@@ -46,7 +46,6 @@ You can run the script with various flags to customize the analysis.
 
 ```bash
 sudo ./pihole_stats.sh [OPTIONS]
-
 
 ```
 
@@ -83,6 +82,7 @@ sudo ./pihole_stats.sh [OPTIONS]
 * `-j` : **JSON Mode.** Outputs raw JSON instead of the text report.
 * `-s` : **Silent Mode.** Suppresses screen output. Essential for cron jobs.
 * `-rt <days>` : **Retention/Rotation.** Deletes report files in your `SAVE_DIR` older than X days.
+* `-snap` : **Snapshot Mode.** Creates a temporary copy of the DB to avoid "Database Locked" errors. Auto-detects if RAM is sufficient (fast); falls back to disk if needed (safe).
 
 ### ⚙️ Configuration
 
@@ -121,7 +121,6 @@ server:
     # ... other settings ...
     extended-statistics: yes
 
-
 ```
 
 3. Restart Unbound: `sudo service unbound restart`
@@ -157,7 +156,6 @@ crontab -e
 # Add this line:
 55 23 * * * /home/pi/pihole_stats.sh -24h -j -f "daily_stats.json" -rt 30 -s
 
-
 ```
 
 ## Example Output
@@ -167,7 +165,7 @@ crontab -e
 
 ```text
 =========================================================
-              Pi-hole Latency Analysis v2.7
+              Pi-hole Latency Analysis v3.0
 =========================================================
 Analysis Date : 2026-01-18 12:30:00
 Time Period   : Last 24 Hours
@@ -183,12 +181,12 @@ Median  Latency       : 0.85 ms
 95th Percentile       : 45.20 ms
 
 --- Latency Distribution of Analyzed Queries ---
-Tier 0 (< 0.009ms)       :  10.50%  (3801)
-Tier 1 (0.009 - 0.1ms)   :  65.20%  (23602)
-Tier 2 (0.1 - 1ms)       :  15.10%  (5466)
-Tier 3 (1 - 10ms)        :   5.20%  (1882)
-Tier 4 (10 - 50ms)       :   3.00%  (1086)
-Tier 5 (> 50ms)          :   1.00%  (363)
+Tier 0 (< 0.009ms)        :  10.50%  (3801)
+Tier 1 (0.009 - 0.1ms)    :  65.20%  (23602)
+Tier 2 (0.1 - 1ms)        :  15.10%  (5466)
+Tier 3 (1 - 10ms)         :   5.20%  (1882)
+Tier 4 (10 - 50ms)        :   3.00%  (1086)
+Tier 5 (> 50ms)           :   1.00%  (363)
 
 =========================================================
               Unbound DNS Performance
@@ -207,7 +205,6 @@ RRset Cache       : 8.50 MB / 100.00 MB  (8.50%)
 =========================================================
 Total Execution Time: 0.85s
 
-
 ```
 
 </details>
@@ -217,7 +214,7 @@ Total Execution Time: 0.85s
 
 ```json
 {
-  "version": "2.7",
+  "version": "3.0",
   "date": "2026-01-18 12:30:00",
   "time_period": "Last 24 Hours",
   "mode": "All Normal Queries",
@@ -251,13 +248,7 @@ Total Execution Time: 0.85s
   }
 }
 
-
 ```
 
 </details>
 
-
-
-```
-
-```
