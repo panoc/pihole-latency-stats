@@ -1,5 +1,10 @@
 #!/bin/bash
-VERSION="2.6.1"
+VERSION="3.0"
+
+# --- 0. CRITICAL LOCALE FIX ---
+# Force standard "C" locale to prevent decimal errors (e.g. 0,009 vs 0.009)
+export LC_ALL=C
+
 # Capture start time immediately
 START_TS=$(date +%s.%N 2>/dev/null)
 # Fallback for systems without nanosecond support
@@ -16,8 +21,8 @@ SAVE_DIR=""
 CONFIG_ARGS=""
 MAX_LOG_AGE=""  # Default: Disabled
 ENABLE_UNBOUND="auto" # Options: auto, true, false
-DEFAULT_FROM="" # New in v2.9.1
-DEFAULT_TO=""   # New in v2.9.1
+DEFAULT_FROM="" 
+DEFAULT_TO=""
 
 # Default Time Range (0 to Now)
 QUERY_START=0
@@ -109,14 +114,13 @@ if [ -f "$CONFIG_TO_LOAD" ]; then
 elif [ "$CONFIG_TO_LOAD" == "$DEFAULT_CONFIG" ]; then
     create_config "$DEFAULT_CONFIG" > /dev/null; source "$DEFAULT_CONFIG"
 else 
-    echo "Error: Config not found: $CONFIG_TO_LOAD"; exit 1; 
+    echo "⚠️ Warning: Config not found ($CONFIG_TO_LOAD). Using internal defaults." >&2 
 fi
 
-# Apply Config Defaults for Date Ranges (v2.9.1)
+# Apply Config Defaults for Date Ranges
 if [ -n "$DEFAULT_FROM" ]; then
     if TS=$(date -d "$DEFAULT_FROM" +%s 2>/dev/null); then
-        QUERY_START="$TS"
-        TIME_LABEL="Custom Range"
+        QUERY_START="$TS"; TIME_LABEL="Custom Range"
     else
         echo "⚠️ Warning: Invalid DEFAULT_FROM in config: '$DEFAULT_FROM'" >&2
     fi
@@ -124,8 +128,7 @@ fi
 
 if [ -n "$DEFAULT_TO" ]; then
     if TS=$(date -d "$DEFAULT_TO" +%s 2>/dev/null); then
-        QUERY_END="$TS"
-        TIME_LABEL="Custom Range"
+        QUERY_END="$TS"; TIME_LABEL="Custom Range"
     else
         echo "⚠️ Warning: Invalid DEFAULT_TO in config: '$DEFAULT_TO'" >&2
     fi
@@ -152,6 +155,7 @@ show_help() {
     echo "  -rt <days>       : Auto-delete files older than <days>"
     echo "  -unb, -unb-only  : Unbound Stats (Append / Standalone)"
     echo "  -no-unb          : Disable Unbound Stats (Override auto/config)"
+    echo "  -snap            : Snapshot Mode (Safe copy of DB to /tmp)"
     echo "  -c, -mc          : Config (Load/Make)"
     echo "  -db              : Custom DB path"
     exit 0
@@ -168,6 +172,7 @@ SQL_DOMAIN_CLAUSE=""
 SEQUENTIAL=false
 ADD_TIMESTAMP=false
 SHOW_UNBOUND="default" # default, yes, only, no
+USE_SNAPSHOT=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -185,6 +190,7 @@ while [[ $# -gt 0 ]]; do
         -unb) SHOW_UNBOUND="yes"; shift ;;
         -unb-only) SHOW_UNBOUND="only"; shift ;;
         -no-unb) SHOW_UNBOUND="no"; shift ;;
+        -snap) USE_SNAPSHOT=true; shift ;;
         
         # --- DATE PARSING ---
         -from|--start)
@@ -230,7 +236,7 @@ while [[ $# -gt 0 ]]; do
             fi
             # Set Start Time relative to Now
             QUERY_START=$(( $(date +%s) - OFFSET ))
-            # If user uses quick flags (-24h), reset End Time to Now (in case config set a static end time)
+            # If user uses quick flags (-24h), reset End Time to Now
             QUERY_END=$(date +%s)
             shift ;;
         *) echo "❌ Error: Unknown argument '$1'"; exit 1 ;;
@@ -265,12 +271,19 @@ fi
 
 # --- 8. UNBOUND STATS GENERATOR ---
 generate_unbound_report() {
-    # Force Disable Check
     if [ "$SHOW_UNBOUND" == "no" ]; then return; fi
 
     # Check Requirements
     if ! command -v unbound-control &> /dev/null; then
-        [ "$SHOW_UNBOUND" == "only" ] && echo "Error: unbound-control not found." && exit 1
+        if [ "$SHOW_UNBOUND" == "only" ]; then
+             echo "Error: unbound-control not found." && exit 1
+        elif [ "$SHOW_UNBOUND" == "yes" ]; then
+             echo "SELECT '=========================================================';"
+             echo "SELECT '              Unbound DNS Performance';"
+             echo "SELECT '=========================================================';"
+             echo "SELECT '❌ Error: Unbound requested (-unb) but unbound-control not found.';"
+             echo "SELECT '=========================================================';"
+        fi
         return
     fi
     
@@ -299,11 +312,20 @@ generate_unbound_report() {
     # Explicit config path to avoid missing SSL cert errors
     RAW_STATS=$(unbound-control -c /etc/unbound/unbound.conf stats_noreset 2>&1)
     
-    if [ -z "$RAW_STATS" ] || echo "$RAW_STATS" | grep -q "error"; then
+    # FIX v2.9: Strict error checking (ignore "dns_error_reports" statistic key)
+    if [ -z "$RAW_STATS" ] || echo "$RAW_STATS" | grep -iEq "^error:|connection refused"; then
          if [ "$SHOW_UNBOUND" == "only" ]; then
              echo "Error: Could not retrieve Unbound stats."
              echo "Unbound Output: $RAW_STATS"
              exit 1
+         elif [ "$SHOW_UNBOUND" == "yes" ]; then
+             CLEAN_ERR=$(echo "$RAW_STATS" | tr -d "'")
+             echo "SELECT '=========================================================';"
+             echo "SELECT '              Unbound DNS Performance';"
+             echo "SELECT '=========================================================';"
+             echo "SELECT '❌ Error: Could not retrieve stats.';"
+             echo "SELECT 'Detail: $CLEAN_ERR';"
+             echo "SELECT '=========================================================';"
          fi
          return
     fi
@@ -389,6 +411,14 @@ generate_report() {
     IFS=$'\n' sorted_limits=($(printf "%s\n" "${raw_limits[@]}" | grep -v '^$' | sort -n))
     unset IFS
 
+    # FIX v2.8: Fallback to defaults if Config file or Sort failed (Empty List = Crash)
+    if [ ${#sorted_limits[@]} -eq 0 ]; then
+        if [ "$SILENT_MODE" = false ]; then echo "⚠️ Warning: No valid tiers detected (Locale or Config issue). Using defaults." >&2; fi
+        raw_limits=("0.009" "0.1" "1" "10" "50" "100" "300" "1000")
+        IFS=$'\n' sorted_limits=($(printf "%s\n" "${raw_limits[@]}" | grep -v '^$' | sort -n))
+        unset IFS
+    fi
+
     # Build Dynamic SQL for Tiers
     sql_tier_columns=""
     sql_text_rows=""
@@ -405,11 +435,17 @@ generate_report() {
             labels[$tier_index]="Tier ${tier_index} (${prev_limit_ms} - ${limit_ms}ms)"
             sql_logic="reply_time > $prev_limit_sec AND reply_time <= $limit_sec"
         fi
-        sql_tier_columns="${sql_tier_columns} SUM(CASE WHEN ${sql_logic} AND $SQL_STATUS_FILTER THEN 1 ELSE 0 END) as t${tier_index},"
+        
+        # Append comma only if list is not empty
+        [ -n "$sql_tier_columns" ] && sql_tier_columns="${sql_tier_columns}, "
+        sql_tier_columns="${sql_tier_columns} SUM(CASE WHEN ${sql_logic} AND $SQL_STATUS_FILTER THEN 1 ELSE 0 END) as t${tier_index}"
+        
         prev_limit_ms="$limit_ms"; prev_limit_sec="$limit_sec"; ((tier_index++))
     done
 
     labels[$tier_index]="Tier ${tier_index} (> ${prev_limit_ms}ms)"
+    # Append final column
+    [ -n "$sql_tier_columns" ] && sql_tier_columns="${sql_tier_columns}, "
     sql_tier_columns="${sql_tier_columns} SUM(CASE WHEN reply_time > $prev_limit_sec AND $SQL_STATUS_FILTER THEN 1 ELSE 0 END) as t${tier_index}"
 
     max_len=0
@@ -456,7 +492,7 @@ generate_report() {
         $sql_text_rows
         SELECT '';
         $UNBOUND_SQL_BLOCK"
-
+        
     JSON_REPORT_SQL=""
     if [ "$JSON_OUTPUT" = true ]; then
         JSON_REPORT_SQL="
@@ -487,14 +523,53 @@ generate_report() {
         SELECT '___JSON_END___';"
     fi
 
+    # --- HANDLE SNAPSHOT MODE (v2.9) ---
+    ACTIVE_DB="$DBfile"
+    SNAPSHOT_FILE="/tmp/pihole_stats_snap_$$.db"
+    
+    if [ "$USE_SNAPSHOT" = true ]; then
+        if [ "$SILENT_MODE" = false ]; then echo "📸 Checking memory safety..." >&2; fi
+        
+        # Check DB Size (in KB) using awk
+        DB_SIZE=$(du -k "$DBfile" | awk '{print $1}')
+        
+        # Check Available RAM (in KB) using 'free -k'
+        # $7 is 'Available' column in standard Linux free output (Total, Used, Free, Shared, Buff/Cache, Available)
+        FREE_RAM=$(free -k | awk '/^Mem:/{print $7}')
+        
+        # Fallback to /proc/meminfo if free fails or returns empty
+        if [ -z "$FREE_RAM" ]; then
+             FREE_RAM=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
+        fi
+        
+        # Safety Buffer: 50MB (51200 KB)
+        REQUIRED_RAM=$((DB_SIZE + 51200))
+        
+        if [ "$FREE_RAM" -lt "$REQUIRED_RAM" ]; then
+             if [ "$SILENT_MODE" = false ]; then 
+                 echo "⚠️ Warning: Low RAM detected (Free: ${FREE_RAM}KB, DB: ${DB_SIZE}KB)." >&2
+                 echo "💾 Falling back to disk snapshot ($HOME/pihole_stats_snap_$$.db)..." >&2
+             fi
+             SNAPSHOT_FILE="$HOME/pihole_stats_snap_$$.db"
+        else
+             if [ "$SILENT_MODE" = false ]; then echo "📸 Creating RAM snapshot ($SNAPSHOT_FILE)..." >&2; fi
+        fi
+        
+        # Safe online backup using sqlite3 command
+        if ! sqlite3 "$DBfile" ".backup '$SNAPSHOT_FILE'"; then
+            echo "❌ Error: Failed to create snapshot." >&2
+            exit 1
+        fi
+        ACTIVE_DB="$SNAPSHOT_FILE"
+    fi
+
     # Execute SQLite
-    sqlite3 "$DBfile" <<EOF
+    sqlite3 "$ACTIVE_DB" <<EOF
 .mode list
 .headers off
 .timeout 30000
 .output /dev/null
 PRAGMA temp_store = MEMORY;
-PRAGMA journal_mode = OFF;
 PRAGMA synchronous = OFF;
 
 CREATE TEMP TABLE raw_data AS SELECT status, reply_time FROM queries WHERE timestamp >= $QUERY_START AND timestamp <= $QUERY_END $SQL_DOMAIN_CLAUSE; 
@@ -514,6 +589,11 @@ CREATE TEMP TABLE analyzed_times AS SELECT reply_time FROM raw_data WHERE reply_
 $JSON_REPORT_SQL
 $TEXT_REPORT_SQL
 EOF
+
+    # Clean up snapshot if used
+    if [ "$USE_SNAPSHOT" = true ] && [ -f "$SNAPSHOT_FILE" ]; then
+        rm "$SNAPSHOT_FILE"
+    fi
 }
 
 # --- 10. EXECUTION & OUTPUT ---
@@ -535,10 +615,17 @@ fi
 
 # Generate
 if [ "$SHOW_UNBOUND" == "only" ]; then
-    # Unbound Only: Run bash function directly (No SQLite shell needed for this part)
+    # Unbound Only: Run bash function directly
+    # FIX v2.7.3: Catch and display errors (e.g. missing command) instead of silence
     RAW_UNB=$(generate_unbound_report)
     
-    # Robust text extraction using sed to simulate SQLite string printing
+    # Check if the output looks like an Error message
+    if echo "$RAW_UNB" | grep -q "Error:"; then
+        echo "$RAW_UNB"
+        exit 1
+    fi
+    
+    # Robust text extraction
     FULL_OUTPUT=$(echo "$RAW_UNB" | grep "SELECT" | sed -e "s/^SELECT '//" -e "s/';$//" -e "s/' || '//")
 else
     # Full Report: Run SQLite safely
@@ -588,7 +675,7 @@ if [ -n "$SAVE_DIR" ] && [ -d "$SAVE_DIR" ] && [ -n "$MAX_LOG_AGE" ] && [[ "$MAX
     fi
 fi
 
-# Execution Timer (v2.9.1)
+# Execution Timer (v2.9)
 END_TS=$(date +%s.%N 2>/dev/null)
 if [[ "$END_TS" == *N* ]] || [ -z "$END_TS" ]; then END_TS=$(date +%s); fi
 
