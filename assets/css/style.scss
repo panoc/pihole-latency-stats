@@ -11,12 +11,12 @@
 .project-name::before {
   content: "";
   display: inline-block;         /* Sits on the same line */
-  vertical-align: top;        /* Aligns with the middle of the text */
+  vertical-align: middle;        /* Aligns with the middle of the text */
   margin-right: 10px;            /* Space between logo and text */
   
   /* Size of the logo */
-  width: 37px; 
-  height: 37px;
+  width: 30px; 
+  height: 30px;
   
   /* The Image Source */
   background-image: url('{{ site.github.url }}/assets/favicon.png');
