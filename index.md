@@ -261,68 +261,72 @@ crontab -e
 
 <details>
 <summary><strong>Click to expand Text Report (Horizontal Layout)</strong></summary>
+<br>
 
 *Automatically generated on terminals wider than 100 columns (or with `-hor`).*
-![Horizontal Statistics](assets/console-h.png)
+
+<img src="assets/console-h.png" alt="Horizontal Statistics">
 
 </details>
 
 <details>
 <summary><strong>Click to expand Text Report (Vertical Layout)</strong></summary>
+<br>
 
 *Standard layout for mobile, cron logs, or `-ver` flag.*
-![Vertical Statistics](assets/console-v.png)
+
+<img src="assets/console-v.png" alt="Vertical Statistics">
 
 </details>
 
 <details>
 <summary><strong>Click to expand JSON Structure</strong></summary>
+<br>
 
-```
-json
+{% highlight json %}
 {
-  "version": "3.1",
-  "date": "2026-01-20 12:30:00",
-  "time_period": "All Time",
-  "mode": "All Normal Queries",
-  "stats": {
-    "total_queries": 165711,
-    "unsuccessful": 2840,
-    "total_valid": 162871,
-    "blocked": 23329,
-    "analyzed": 139542
-  },
-  "latency": {
-    "average": 6.55,
-    "median": 0.03,
-    "p95": 14.96
-  },
-  "tiers": [
-    {"label": "Tier 1 (< 0.009ms)", "count": 11032, "percentage": 7.91},
-    {"label": "Tier 2 (0.009 - 0.1ms)", "count": 93433, "percentage": 66.96},
-    {"label": "Tier 3 (0.1 - 1ms)", "count": 22286, "percentage": 15.97},
-    {"label": "Tier 4 (1 - 10ms)", "count": 4703, "percentage": 3.37},
-    {"label": "Tier 5 (10 - 50ms)", "count": 4671, "percentage": 3.35}
-  ],
-  "unbound": {
-    "status": "active",
-    "total": 37129,
-    "hits": 27513,
-    "miss": 9616,
-    "prefetch": 16437,
-    "ratio": 74.10,
-    "memory": {
-        "msg": { "used_mb": 3.29, "limit_mb": 64.00, "percent": 5.13 },
-        "rrset": { "used_mb": 3.51, "limit_mb": 128.00, "percent": 2.74 }
-    },
-    "cache_count": {
-        "messages": 288,
-        "rrsets": 486
-    }
-  }
+  "version": "3.1",
+  "date": "2026-01-20 12:30:00",
+  "time_period": "All Time",
+  "mode": "All Normal Queries",
+  "stats": {
+    "total_queries": 165711,
+    "unsuccessful": 2840,
+    "total_valid": 162871,
+    "blocked": 23329,
+    "analyzed": 139542
+  },
+  "latency": {
+    "average": 6.55,
+    "median": 0.03,
+    "p95": 14.96
+  },
+  "tiers": [
+    {"label": "Tier 1 (< 0.009ms)", "count": 11032, "percentage": 7.91},
+    {"label": "Tier 2 (0.009 - 0.1ms)", "count": 93433, "percentage": 66.96},
+    {"label": "Tier 3 (0.1 - 1ms)", "count": 22286, "percentage": 15.97},
+    {"label": "Tier 4 (1 - 10ms)", "count": 4703, "percentage": 3.37},
+    {"label": "Tier 5 (10 - 50ms)", "count": 4671, "percentage": 3.35}
+  ],
+  "unbound": {
+    "status": "active",
+    "total": 37129,
+    "hits": 27513,
+    "miss": 9616,
+    "prefetch": 16437,
+    "ratio": 74.10,
+    "memory": {
+        "msg": { "used_mb": 3.29, "limit_mb": 64.00, "percent": 5.13 },
+        "rrset": { "used_mb": 3.51, "limit_mb": 128.00, "percent": 2.74 }
+    },
+    "cache_count": {
+        "messages": 288,
+        "rrsets": 486
+    }
+  }
 }
-
-```
+{% endhighlight %}
 
 </details>
+
 
