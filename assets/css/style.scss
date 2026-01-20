@@ -30,7 +30,7 @@
 .btn {
   background-color: #f6f6f6;
   color: #1e2327; /* Dark text */
-  border-color: #f6f6f6;
+  border-color: #DDC9C9;
 }
 
 /* 5. Links in the main text */
@@ -54,14 +54,15 @@ body {
 /* Optional: Update code blocks to fit the warmer theme */
 pre, code {
   background-color: #fff5f5; /* Very faint red/white for code boxes */
-  border: 1px solid #e3cece; /* Subtle red border */
+  border: 1px solid #DDC9C9; /* Subtle red border */
   color: #900000;            /* Dark red text for code */
 }
 /* --- Blockquote (The > sections) --- */
 blockquote {
   /* Box Background & Border */
 
-   
+  border-left: 5px solid #333333 !important;
+  
   /* Force text color for the container */
   color: #000000 !important; 
 }
@@ -82,7 +83,8 @@ pre, code {
   /* Bright text color */
   color: #1a1a1a !important; 
   
- 
+  /* Optional: Add a border */
+  border: 1px solid #DDC9C9;
 }
 
 /* --- Header Buttons --- */
