@@ -22,7 +22,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 # ==============================================================================
 
-VERSION="3.1"
+VERSION="3.2"
 
 # --- 0. CRITICAL LOCALE FIX ---
 export LC_ALL=C
@@ -497,7 +497,7 @@ print_text_report() {
             R_LINES+=("")
             R_LINES+=("----- Cache Memory Usage (Used / Limit) -----")
             R_LINES+=("Msg Cache   : $(to_mb $U_MEM_MSG)MB / $(to_mb $U_LIM_MSG)MB  ($U_PCT_MEM_MSG%)")
-            R_LINES+=("RRset Cache : $(to_mb $U_MEM_RR)MB / $(to_mb $U_MEM_RR)MB ($U_PCT_MEM_RR%)")
+            R_LINES+=("RRset Cache : $(to_mb $U_MEM_RR)MB / $(to_mb $U_LIM_RR)MB ($U_PCT_MEM_RR%)")
             if [ "$ENABLE_UCC" = true ]; then
                 R_LINES+=("Messages (Queries): $UCC_MSG")
                 R_LINES+=("RRsets (Records)  : $UCC_RR")
