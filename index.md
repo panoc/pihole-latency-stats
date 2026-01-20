@@ -7,7 +7,7 @@ A lightweight, zero-dependency Bash script that analyzes your **Pi-hole**'s perf
 
 This tool helps you answer: *"Is my DNS slow because of my upstream provider, or is it just my local network?"* and *"Is Unbound performing efficiently?"*
 
-## Features
+## **Features**
 
 * **Latency Analysis:** Calculates Average, Median, and 95th Percentile latency.
 * **Tiered Grouping:** Groups queries into buckets (e.g., <1ms, 10-50ms) to easily spot outliers.
@@ -26,13 +26,13 @@ This tool helps you answer: *"Is my DNS slow because of my upstream provider, or
 * **Flexible Paths:** Load configurations and save reports to **any folder** on your system.
 * **Zero Dependencies:** Uses standard tools (`sqlite3`, `bc`, `awk`, `sed`) pre-installed on most Pi-hole distros.
 
-## Requirements
+## **Requirements**
 
 * Pi-hole (v5 or v6)
 * `sqlite3` (usually installed by default)
 * *(Optional)* `unbound` and `unbound-host` (for Unbound statistics)
 
-## Quick Start
+## **Quick Start**
 
 Download and run:
 
@@ -43,7 +43,7 @@ sudo ./pihole_stats.sh
 
 ```
 
-## Usage
+## **Usage**
 
 You can run the script with various flags to customize the analysis.
 
@@ -99,7 +99,7 @@ sudo ./pihole_stats.sh [OPTIONS]
 * `-mc <file>` : Make (generate) a default configuration file.
 * `-db <path>` : Manually specify the path to `pihole-FTL.db`.
 
-## Configuration File
+## **Configuration File**
 
 On the first run, the script creates `pihole_stats.conf` in the same directory. You can edit this file to permanently set your preferences:
 
@@ -109,7 +109,7 @@ On the first run, the script creates `pihole_stats.conf` in the same directory. 
 4. **Visual Layout:** Set `LAYOUT` to `auto` (default), `horizontal`, or `vertical`.
 5. **Auto-Delete:** Set `MAX_LOG_AGE` to automatically delete old reports every time the script runs.
 
-## 🔍 Real-World Use Cases
+## 🔍 **Real-World Use Cases**
 
 ### 1. 🐢 Diagnosing "Is it me or the ISP?"
 
@@ -171,7 +171,7 @@ Running heavy SQL queries on a Raspberry Pi Zero (512MB RAM) can cause the web i
 
 
 
-## Unbound Integration
+## **Unbound Integration**
 
 The script attempts to **Auto-Detect** Unbound. It checks if:
 
@@ -213,7 +213,7 @@ The `-ucc` flag provides deep insights by counting the exact number of items in 
 
 * **Recommendation:** Use this flag for **periodic reporting** (e.g., hourly/daily Cron jobs) or manual spot-checks. **Do not** run it in a rapid "live" loop (e.g., every 5 seconds).
 
-## Understanding the Metrics
+## **Understanding the Metrics**
 
 ### Pi-hole Metrics
 
@@ -257,7 +257,7 @@ crontab -e
 > 
 > 
 
-## Example Output
+## **Example Output**
 
 <details>
 <summary><strong>Click to expand Text Report (Horizontal Layout)</strong></summary>
