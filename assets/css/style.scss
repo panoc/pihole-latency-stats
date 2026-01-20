@@ -55,13 +55,11 @@ blockquote strong {
 }
 
 /* --- Code Blocks (Bash, JSON, etc.) --- */
-/* This combines your two previous blocks into one correct rule */
 pre, code {
   background-color: #EDDFDA !important; 
   color: #1a1a1a !important; 
+  border-color : #DDC9C9 !important; 
   
-  /* FIXED: The semicolon is now at the END */
-  border: 1px solid #DDC9C9 !important; 
 }
 
 /* --- Header Buttons --- */
