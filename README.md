@@ -52,7 +52,7 @@ sudo ./pihole_stats.sh [OPTIONS]
 ### 🕒 Time Filters
 
 * `-24h` : Analyze the last 24 hours (Default).
-* `-7d`  : Analyze the last 7 days.
+* `-7d`  : Analyze the last 7 days.
 * `-<number>h` : Analyze the last N hours (e.g., `-12h`).
 * `-<number>d` : Analyze the last N days (e.g., `-30d`).
 * `-from "date"` : Start analysis from a specific date/time (e.g., `-from "yesterday"`, `-from "2024-01-01"`).
@@ -106,6 +106,68 @@ On the first run, the script creates `pihole_stats.conf` in the same directory. 
 4. **Visual Layout:** Set `LAYOUT` to `auto` (default), `horizontal`, or `vertical`.
 5. **Auto-Delete:** Set `MAX_LOG_AGE` to automatically delete old reports every time the script runs.
 
+## 🔍 Real-World Use Cases
+
+### 1. 🐢 Diagnosing "Is it me or the ISP?"
+
+When your internet feels slow, speed tests often lie because they measure bandwidth, not latency. DNS lag is the #1 cause of "snappy" browsing turning sluggish.
+
+* **The Test:** Compare your **Local** speed vs **Upstream** speed.
+* `./pihole_stats.sh -pi` (Measures only cached/local answers)
+* `./pihole_stats.sh -up` (Measures only answers from Cloudflare/Google/ISP)
+
+
+* **The Insight:**
+* If `-pi` is slow (> 10ms): Your Raspberry Pi might be overloaded or using a slow SD card.
+* If `-up` is slow (> 100ms): Your ISP or upstream DNS provider is having issues.
+
+
+
+### 2. 🚀 Optimizing Unbound Performance
+
+If you use Unbound (recursive or forwarding), blind trust isn't enough. Verify your cache efficiency.
+
+* **Benchmark Strategy:** Run `./pihole_stats.sh -up` to strictly analyze upstream resolution speed. Compare the **Average** and **p95** latency against a standard forwarder like `1.1.1.1` to see if being recursive is actually worth the speed trade-off.
+* **Tune Cache Efficiency:** Check the **Cache Hit Ratio** in the Unbound panel. If it stays low (< 50%) after 24 hours, consider increasing `cache-min-ttl`.
+* **Deep Inspection:** Use `./pihole_stats.sh -ucc` to count the exact number of **Messages** and **RRsets** in RAM. This helps verify if `prefetch` is effectively keeping popular domains alive.
+
+### 3. 🕵️ Domain-Specific Debugging
+
+Sometimes specific services (like work VPNs or streaming sites) feel slow while everything else is fine.
+
+* **The Test:** Filter stats for a specific domain.
+* `./pihole_stats.sh -dm "netflix"` (Analyzes `netflix.com`, `nflxso.net`, etc.)
+* `./pihole_stats.sh -edm "my-work-vpn.com"` (Exact match only)
+
+
+* **The Insight:** You might find that while your average global latency is 20ms, `netflix` queries are hitting **Tier 8 (>1000ms)**, indicating a specific routing issue or blocklist conflict.
+
+### 4. 📉 Long-Term Health Monitoring
+
+Spot trends before they become problems by automating data collection.
+
+* **The Setup:** Add the script to Cron to run nightly.
+* `./pihole_stats.sh -24h -j -f "daily_stats.json" -rt 30`
+
+
+* **The Insight:**
+   * **JSON Output:** Ingest this into **Home Assistant**, **Grafana**, or **Node-RED** to visualize latency over weeks.
+  * **Auto-Retention (`-rt`):** Keeps your disk clean by automatically deleting reports older than 30 days.
+
+
+
+### 5. 🛡️ Safe Analysis on Low-End Hardware
+
+Running heavy SQL queries on a Raspberry Pi Zero (512MB RAM) can cause the web interface to freeze or FTL to crash ("Database Locked").
+
+* **The Solution:** Snapshot Mode (`-snap`).
+* **How it works:**
+* The script creates a temporary copy of your database.
+* It intelligently checks available RAM. If you have space, it copies to **RAM** (instant). If not, it falls back to **Disk** (safe).
+* All math happens on the copy, leaving your live DNS service completely untouched and lag-free.
+
+
+
 ## Unbound Integration
 
 The script attempts to **Auto-Detect** Unbound. It checks if:
@@ -125,8 +187,8 @@ To see the **Memory Usage** breakdown (Message vs RRset cache), you must enable 
 
 ```yaml
 server:
-    # ... other settings ...
-    extended-statistics: yes
+    # ... other settings ...
+    extended-statistics: yes
 
 ```
 
@@ -167,10 +229,11 @@ The `-ucc` flag provides deep insights by counting the exact number of items in 
 * **Cache Hit Ratio (CHR):** The percentage of queries answered purely from Unbound's RAM. Higher is better (usually >80% after a few days).
 * **Prefetch Jobs:** The number of times Unbound refreshed a cached item *before* it expired. This means the client got an instant answer instead of waiting.
 * **Cache Memory Usage:** Shows how much RAM is actually being used vs the limit you set in `msg-cache-size` and `rrset-cache-size`.
-* **Cache Count (-ucc):** The actual number of DNS messages (queries) and RRsets (records) currently sitting in RAM.
-  * **Messages:** The number of cached *questions* (e.g., "What is the IP of https://www.google.com/search?q=google.com?").
-  * **RRsets:** The number of cached *records/answers* (e.g., "A Record: 192.168.1.1"). One Message can link to multiple RRsets (like CNAME chains).
----
+* **Cache Count (`-ucc`):** A deep inspection of the items currently locked in RAM.
+* **Messages:** The number of cached *questions* (e.g., "What is the IP of google.com?").
+* **RRsets:** The number of cached *records/answers* (e.g., "A Record: 192.168.1.1"). One Message can link to multiple RRsets (like CNAME chains).
+
+
 
 ## Automated Reports (Cron)
 
@@ -190,7 +253,6 @@ crontab -e
 > * If you specifically require a wide text report from Cron, you can force it by adding `-hor` to the command.
 > 
 > 
-
 
 ## Example Output
 
@@ -339,7 +401,5 @@ Total Execution Time: 0.52s
 }
 
 ```
-
-</details>
 
 </details>
