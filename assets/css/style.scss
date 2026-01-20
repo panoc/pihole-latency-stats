@@ -9,11 +9,11 @@
 /* 1. The Big Header Gradient */
 .page-header {
   /* Change these two Hex codes to whatever colors you want */
- /*  background-color: #1e2327; */
+ background-color: #1e2327; 
   /* background-image: linear-gradient(120deg, #2b3238, #1e2327); */
   background-image: linear-gradient(120deg, #420808, #1a1a1a);
-  background-color: #b03030;
-  background-image: linear-gradient(120deg, #cc4444, #8b1a1a);
+  /*background-color: #b03030;
+  background-image: linear-gradient(120deg, #cc4444, #8b1a1a);*/
 }
 
 /* 2. The Title Text (Project Name) */
@@ -46,7 +46,7 @@ body {
 
 /* --- Main Page Background (Soft Red) --- */
 body {
-  background-color: #fcf2f2; /* A very light, soft reddish-grey */
+  background-color: #fcf7f2; /* A very light, soft reddish-grey */
   color: #333333;            /* Dark grey text so it stands out */
 }
 
