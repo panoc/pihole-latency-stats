@@ -86,18 +86,6 @@ pre, code {
   border: 1px solid #CCBFBB;
 }
 
-/* --- Main Header # (H1) ONLY --- */
-h1 {
-  /* This color applies ONLY to single # headers */
-  color: #FFFCFC !important; /* Example: Gold/Orange */
-}
-
-/* --- Other Headers ##, ###, #### ... --- */
-h2, h3, h4, h5, h6 {
-  /* This color applies to ##, ###, etc. */
-  color: #190909 !important; /* Example: White */
-}
-
 /* --- Header Buttons --- */
 
 /* 1. Default State (The color you asked for) */
@@ -113,3 +101,18 @@ h2, h3, h4, h5, h6 {
   background-color: #564141 !important; 
 }
 
+/* --- 1. Top Banner Title (Project Name) --- */
+.project-name {
+  color: #FCF9F9 !important; /* White */
+}
+
+/* --- 2. Content Headers (The #, ##, ### in your README) --- */
+/* We target .main-content to make sure we don't accidentally change the top banner */
+.main-content h1, 
+.main-content h2, 
+.main-content h3, 
+.main-content h4, 
+.main-content h5, 
+.main-content h6 {
+  color: #190909 !important; /* Very dark reddish-black */
+}
