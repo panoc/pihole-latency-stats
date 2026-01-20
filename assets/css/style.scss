@@ -98,5 +98,18 @@ h2, h3, h4, h5, h6 {
   color: #190909 !important; /* Example: White */
 }
 
+/* --- Header Buttons --- */
 
+/* 1. Default State (The color you asked for) */
+.btn {
+  background-color: #fcf7f2 !important;  /* Your off-white color */
+             
+  border: 1px solid #dcdcdc !important;
+}
+
+/* 2. Hover State (What happens when mouse is over it) */
+.btn:hover {
+  /* Make it slightly brighter (Pure White) on hover so it feels interactive */
+  background-color: #564141 !important; 
+}
 
