@@ -1,3 +1,6 @@
+---
+layout: default
+---
 # Pi-hole Latency Stats
 
 A lightweight, zero-dependency Bash script that analyzes your **Pi-hole**'s performance. It calculates latency percentiles (Median, 95th), groups query speeds into "Tiers" (buckets), and—optionally—monitors your **Unbound** recursive DNS server statistics and memory usage.
