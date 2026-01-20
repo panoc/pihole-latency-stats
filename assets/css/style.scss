@@ -119,3 +119,17 @@ pre, code {
 .main-content h6 {
   color: #190909 !important; /* Very dark reddish-black */
 }
+/* --- Adjust Page Width --- */
+.main-content {
+  /* Default is usually 64rem. Increase this to make it wider. */
+  max-width: 80rem !important; 
+  
+  /* Optional: Ensure padding stays safe on mobile */
+ /* padding: 2rem 2rem !important;*/
+}
+
+/* Optional: If you want it HUGE (almost full screen) */
+/* .main-content {
+  max-width: 95% !important;
+} 
+*/
