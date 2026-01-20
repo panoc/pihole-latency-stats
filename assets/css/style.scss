@@ -54,14 +54,14 @@ body {
 /* Optional: Update code blocks to fit the warmer theme */
 pre, code {
   background-color: #fff5f5; /* Very faint red/white for code boxes */
-  border: 1px solid #DDC9C9; /* Subtle red border */
+  border: 1px solid #DDC9C9; !important; /* Subtle red border */
   color: #900000;            /* Dark red text for code */
 }
 /* --- Blockquote (The > sections) --- */
 blockquote {
   /* Box Background & Border */
 
-  border-left: 5px solid #333333 !important;
+  border-left: 5px solid #DDC9C9 !important;
   
   /* Force text color for the container */
   color: #000000 !important; 
