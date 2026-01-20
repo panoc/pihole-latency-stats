@@ -2,7 +2,7 @@
   <img src="assets/favicon.png" height="100" alt="Logo">
   <br>
   
-  <img src="assets/title.png" height="55" alt="Pi-hole Latency Stats">
+  <img src="assets/title.png" height="50" alt="Pi-hole Latency Stats">
   
   <p>
     <b>Analyze your Pi-hole and Unbound DNS response times.</b>
