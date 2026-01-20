@@ -168,6 +168,8 @@ The `-ucc` flag provides deep insights by counting the exact number of items in 
 * **Prefetch Jobs:** The number of times Unbound refreshed a cached item *before* it expired. This means the client got an instant answer instead of waiting.
 * **Cache Memory Usage:** Shows how much RAM is actually being used vs the limit you set in `msg-cache-size` and `rrset-cache-size`.
 * **Cache Count (-ucc):** The actual number of DNS messages (queries) and RRsets (records) currently sitting in RAM.
+  * **Messages:** The number of cached *questions* (e.g., "What is the IP of https://www.google.com/search?q=google.com?").
+  * **RRsets:** The number of cached *records/answers* (e.g., "A Record: 192.168.1.1"). One Message can link to multiple RRsets (like CNAME chains).
 ---
 
 ## Automated Reports (Cron)
