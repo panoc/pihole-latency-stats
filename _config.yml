@@ -1,0 +1,3 @@
+theme: jekyll-theme-cayman
+title: Pi-hole Latency Stats
+description: Analyze Pi-hole and Unbound DNS response times.
