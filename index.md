@@ -52,7 +52,7 @@ sudo ./pihole_stats.sh [OPTIONS]
 
 ```
 
-### 🕒 Time Filters
+### 🕒 **Time Filters**
 
 * `-24h` : Analyze the last 24 hours (Default).
 * `-7d`  : Analyze the last 7 days.
@@ -61,31 +61,31 @@ sudo ./pihole_stats.sh [OPTIONS]
 * `-from "date"` : Start analysis from a specific date/time (e.g., `-from "yesterday"`, `-from "2024-01-01"`).
 * `-to "date"` : End analysis at a specific date/time (e.g., `-to "2 hours ago"`, `-to "14:00"`).
 
-### 🔍 Query Modes
+### 🔍 **Query Modes**
 
 * **Default** : Analyzes all "normal" queries (Forwarded + Cached).
 * `-up` : **Upstream Mode.** Analyzes *only* queries forwarded to upstream DNS (Cloudflare, Google, Unbound). Use this to test your ISP/Provider speed.
 * `-pi` : **Pi-hole Mode.** Analyzes *only* cached/local answers. Use this to test the speed of the Pi-hole hardware itself.
 * `-nx` : **Exclude Blocked.** Removes blocked queries (0.0ms) from the calculation to prevent skewing the average.
 
-### 🎯 Filtering
+### 🎯 **Filtering**
 
 * `-dm <string>` : **Domain Filter.** Analyze only domains containing this string (e.g., `-dm google` matches `google.com`, `drive.google.com`).
 * `-edm <string>` : **Exact Domain.** Analyze only this exact domain (e.g., `-edm google.com`).
 
-### 📦 Unbound Integration
+### 📦 **Unbound Integration**
 
 * `-unb` : **Force Unbound.** Appends Unbound statistics to the standard Pi-hole report. (Note: The script usually auto-detects this).
 * `-unb-only` : **Unbound Only.** Runs *only* the Unbound health check. This skips the Pi-hole database entirely (faster, useful for checking Unbound status).
 * `-no-unb` : **Disable Unbound.** Forces the script to skip Unbound checks, even if detected or enabled in config.
 * `-ucc` : **Cache Count.** Counts the exact number of Messages and RRsets in RAM. *See Performance Note below.*
 
-### 🖥️ Display Options
+### 🖥️ **Display Options**
 
 * `-hor`, `--horizontal` : **Force Horizontal.** Forces the split-pane dashboard view (ideal for large screens).
 * `-ver`, `--vertical` : **Force Vertical.** Forces the standard vertical list view (ideal for mobile/logs).
 
-### 💾 Output & Automation
+### 💾 **Output & Automation**
 
 * `-f <filename>` : **Save to File.** Writes the output to the specified file.
 * `-j` : **JSON Mode.** Outputs raw JSON instead of the text report.
@@ -93,7 +93,7 @@ sudo ./pihole_stats.sh [OPTIONS]
 * `-rt <days>` : **Retention/Rotation.** Deletes report files in your `SAVE_DIR` older than X days.
 * `-snap` : **Snapshot Mode.** Creates a temporary copy of the DB to avoid "Database Locked" errors. Auto-detects if RAM is sufficient (fast); falls back to disk if needed (safe).
 
-### ⚙️ Configuration
+### ⚙️ **Configuration**
 
 * `-c <file>` : Load a specific configuration file.
 * `-mc <file>` : Make (generate) a default configuration file.
@@ -111,7 +111,7 @@ On the first run, the script creates `pihole_stats.conf` in the same directory. 
 
 ## 🔍 **Real-World Use Cases**
 
-### 1. 🐢 Diagnosing "Is it me or the ISP?"
+### 1. 🐢 **Diagnosing "Is it me or the ISP?"**
 
 When your internet feels slow, speed tests often lie because they measure bandwidth, not latency. DNS lag is the #1 cause of "snappy" browsing turning sluggish.
 
@@ -126,7 +126,7 @@ When your internet feels slow, speed tests often lie because they measure bandwi
 
 
 
-### 2. 🚀 Optimizing Unbound Performance
+### 2. 🚀 **Optimizing Unbound Performance**
 
 If you use Unbound (recursive or forwarding), blind trust isn't enough. Verify your cache efficiency.
 
@@ -134,7 +134,7 @@ If you use Unbound (recursive or forwarding), blind trust isn't enough. Verify y
 * **Tune Cache Efficiency:** Check the **Cache Hit Ratio** in the Unbound panel. If it stays low (< 50%) after 24 hours, consider increasing `cache-min-ttl`.
 * **Deep Inspection:** Use `./pihole_stats.sh -ucc` to count the exact number of **Messages** and **RRsets** in RAM. This helps verify if `prefetch` is effectively keeping popular domains alive.
 
-### 3. 🕵️ Domain-Specific Debugging
+### 3. 🕵️ **Domain-Specific Debugging**
 
 Sometimes specific services (like work VPNs or streaming sites) feel slow while everything else is fine.
 
@@ -145,7 +145,7 @@ Sometimes specific services (like work VPNs or streaming sites) feel slow while 
 
 * **The Insight:** You might find that while your average global latency is 20ms, `netflix` queries are hitting **Tier 8 (>1000ms)**, indicating a specific routing issue or blocklist conflict.
 
-### 4. 📉 Long-Term Health Monitoring
+### 4. 📉 **Long-Term Health Monitoring**
 
 Spot trends before they become problems by automating data collection.
 
@@ -159,7 +159,7 @@ Spot trends before they become problems by automating data collection.
 
 
 
-### 5. 🛡️ Safe Analysis on Low-End Hardware
+### 5. 🛡️ **Safe Analysis on Low-End Hardware**
 
 Running heavy SQL queries on a Raspberry Pi Zero (512MB RAM) can cause the web interface to freeze or FTL to crash ("Database Locked").
 
@@ -181,7 +181,7 @@ The script attempts to **Auto-Detect** Unbound. It checks if:
 * **Pi-hole v5:** Checks `setupVars.conf` or `dnsmasq.d` configs.
 * **Pi-hole v6:** Checks `pihole.toml` for localhost upstreams.
 
-### ⚠️ Prerequisite for Memory Stats
+### ⚠️ **Prerequisite for Memory Stats**
 
 To see the **Memory Usage** breakdown (Message vs RRset cache), you must enable extended statistics in Unbound.
 
@@ -199,7 +199,7 @@ server:
 
 *Without this setting, Memory Usage will report 0 MB.*
 
-### ⚠️ Performance Note: Unbound Cache Counting (`-ucc`)
+### ⚠️ **Performance Note: Unbound Cache Counting (`-ucc`)**
 
 The `-ucc` flag provides deep insights by counting the exact number of items in your Unbound RAM cache. To achieve this, it triggers a cache dump.
 
@@ -215,7 +215,7 @@ The `-ucc` flag provides deep insights by counting the exact number of items in 
 
 ## **Understanding the Metrics**
 
-### Pi-hole Metrics
+### **Pi-hole Metrics**
 
 * **Average Latency:** The mathematical mean of all query times.
 * **Median Latency (p50):** The "middle" query. 50% of your queries were faster than this.
@@ -227,7 +227,7 @@ The `-ucc` flag provides deep insights by counting the exact number of items in 
 
 
 
-### Unbound Metrics
+### **Unbound Metrics**
 
 * **Cache Hit Ratio (CHR):** The percentage of queries answered purely from Unbound's RAM. Higher is better (usually >80% after a few days).
 * **Prefetch Jobs:** The number of times Unbound refreshed a cached item *before* it expired. This means the client got an instant answer instead of waiting.
@@ -238,7 +238,7 @@ The `-ucc` flag provides deep insights by counting the exact number of items in 
 
 
 
-## Automated Reports (Cron)
+## **Automated Reports (Cron)**
 
 To generate a daily report at 11:55 PM and auto-delete logs older than 30 days:
 
