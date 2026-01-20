@@ -11,7 +11,7 @@
 .project-name::before {
   content: "";
   display: inline-block;         /* Sits on the same line */
-  vertical-align: bottom;        /* Aligns with the middle of the text */
+  vertical-align: top;        /* Aligns with the middle of the text */
   margin-right: 10px;            /* Space between logo and text */
   
   /* Size of the logo */
