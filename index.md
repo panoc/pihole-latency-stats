@@ -263,41 +263,7 @@ crontab -e
 <summary><strong>Click to expand Text Report (Horizontal Layout)</strong></summary>
 
 *Automatically generated on terminals wider than 100 columns (or with `-hor`).*
-
-```text
-====================================================================================================
-                                     Pi-hole Latency Stats v3.1
-====================================================================================================
-                                Analysis Date : 2026-01-20 12:30:00
----------------- Pi-hole Performance ----------------||---------- Unbound DNS Performance ----------
-Time Period   : All Time                             ||Server Status : Active (Integrated)
-Query Mode    : All Normal Queries                   ||Config File   : /etc/unbound/unbound.conf
------------------------------------------------------||---------------------------------------------
-Total Queries        : 165,711                       ||Total Queries : 37,129
-Unsuccessful Queries : 2,840 (1.7%)                  ||Cache Hits    : 27,513 (74.10%)
-Total Valid Queries  : 162,871                       ||Cache Misses  : 9,616 (25.90%)
-Blocked Queries      : 23,329 (14.3%)                ||Prefetch Jobs : 16,437 (59.74% of Hits)
-Analyzed Queries     : 139,542 (85.7%)               ||
-Average Latency      : 6.55 ms                       ||----- Cache Memory Usage (Used / Limit) -----
-Median  Latency      : 0.03 ms                       ||Msg Cache   : 3.29MB / 64.00MB  (5.13%)
-95th Percentile      : 14.96 ms                      ||RRset Cache : 3.51MB / 128.00MB (2.74%)
-                                                     ||Messages (Queries): 288
-                                                     ||RRsets (Records)  : 486
-----------------------------------------------------------------------------------------------------
---- Latency Distribution of Pi-Hole Analyzed Queries ---
-Tier 1 (< 0.009ms)       :   7.91%  (11032)
-Tier 2 (0.009 - 0.1ms)   :  66.96%  (93433)
-Tier 3 (0.1 - 1ms)       :  15.97%  (22286)
-Tier 4 (1 - 10ms)        :   3.37%  (4703)
-Tier 5 (10 - 50ms)       :   3.35%  (4671)
-Tier 6 (50 - 100ms)      :   0.91%  (1270)
-Tier 7 (100 - 300ms)     :   1.07%  (1500)
-Tier 8 (300 - 1000ms)    :   0.37%  (510)
-Tier 9 (> 1000ms)        :   0.10%  (137)
-====================================================================================================
-Total Execution Time: 0.52s
-
-```
+![Horizontal Statistics](assets/console-h.png)
 
 </details>
 
@@ -305,62 +271,15 @@ Total Execution Time: 0.52s
 <summary><strong>Click to expand Text Report (Vertical Layout)</strong></summary>
 
 *Standard layout for mobile, cron logs, or `-ver` flag.*
-
-```text
-========================================================
-              Pi-hole Latency Stats v3.1
-========================================================
-Analysis Date : 2026-01-20 12:30:00
-Time Period   : All Time
-Query Mode    : All Normal Queries
---------------------------------------------------------
-Total Queries         : 165,711
-Unsuccessful Queries  : 2,840 (1.7%)
-Total Valid Queries   : 162,871
-Blocked Queries       : 23,329 (14.3%)
-Analyzed Queries      : 139,542 (85.7%)
-Average Latency       : 6.55 ms
-Median  Latency       : 0.03 ms
-95th Percentile       : 14.96 ms
-
---- Latency Distribution of Pi-Hole Analyzed Queries ---
-Tier 1 (< 0.009ms)       :   7.91%  (11032)
-Tier 2 (0.009 - 0.1ms)   :  66.96%  (93433)
-Tier 3 (0.1 - 1ms)       :  15.97%  (22286)
-Tier 4 (1 - 10ms)        :   3.37%  (4703)
-Tier 5 (10 - 50ms)       :   3.35%  (4671)
-Tier 6 (50 - 100ms)      :   0.91%  (1270)
-Tier 7 (100 - 300ms)     :   1.07%  (1500)
-Tier 8 (300 - 1000ms)    :   0.37%  (510)
-Tier 9 (> 1000ms)        :   0.10%  (137)
-
-========================================================
-              Unbound DNS Performance
-========================================================
-Server Status     : Active (Integrated)
-Config File       : /etc/unbound/unbound.conf
---------------------------------------------------------
-Total Queries     : 37,129
-Cache Hits        : 27,513 (74.10%)
-Cache Misses      : 9,616 (25.90%)
-Prefetch Jobs     : 16,437 (59.74% of Hits)
-
-       --- Cache Memory Usage (Used / Limit) ---
-Message Cache     : 3.29 MB / 64.00 MB   (5.13%)
-RRset Cache       : 3.51 MB / 128.00 MB  (2.74%)
-Messages (Queries): 288
-RRsets (Records)  : 486
-========================================================
-Total Execution Time: 0.52s
-
-```
+![Vertical Statistics](assets/console-v.png)
 
 </details>
 
 <details>
 <summary><strong>Click to expand JSON Structure</strong></summary>
 
-```json
+```
+json
 {
   "version": "3.1",
   "date": "2026-01-20 12:30:00",
