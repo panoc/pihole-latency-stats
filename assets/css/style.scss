@@ -8,66 +8,45 @@
 
 /* 1. The Big Header Gradient */
 .page-header {
-  /* Change these two Hex codes to whatever colors you want */
- background-color: #1e2327; 
-  /* background-image: linear-gradient(120deg, #2b3238, #1e2327); */
+  background-color: #1e2327; 
   background-image: linear-gradient(120deg, #420808, #1a1a1a);
-  /*background-color: #b03030;
-  background-image: linear-gradient(120deg, #cc4444, #8b1a1a);*/
 }
 
 /* 2. The Title Text (Project Name) */
 .project-name {
-  color: #ffffff; /* White */
+  color: #ffffff; 
 }
 
 /* 3. The Tagline Text */
 .project-tagline {
-  color: #aeb4b9; /* Light Grey */
+  color: #aeb4b9; 
 }
 
 /* 4. Buttons (Download/View on GitHub) */
 .btn {
   background-color: #f6f6f6;
-  color: #1e2327; /* Dark text */
+  color: #1e2327; 
   border-color: #DDC9C9;
 }
 
 /* 5. Links in the main text */
 .main-content a {
-  color: #d92b2b; /* Pi-hole "Red" or any color you like */
+  color: #d92b2b; 
 }
 
-/* --- Main Page Background (Soft Red) --- */
+/* --- Main Page Background --- */
 body {
-  background-color: #fcf7f2; /* A very light, soft reddish-grey */
-  color: #333333;            /* Dark grey text so it stands out */
-
-  /*
-  background-image: linear-gradient(180deg, #FFFCF9, #FBF1EC) !important;
-  background-attachment: fixed !important;
-  background-repeat: no-repeat !important;
-  background-size: cover !important;
-*/
+  background-color: #fcf7f2; 
+  color: #333333;            
 }
 
-/* Optional: Update code blocks to fit the warmer theme */
-pre, code {
-  background-color: #fff5f5; /* Very faint red/white for code boxes */
-  border: 1px solid #DDC9C9; !important; /* Subtle red border */
-  color: #900000;            /* Dark red text for code */
-}
 /* --- Blockquote (The > sections) --- */
 blockquote {
-  /* Box Background & Border */
-
   border-left: 5px solid #DDC9C9 !important;
-  
-  /* Force text color for the container */
   color: #000000 !important; 
 }
 
-/* FORCE BLACK TEXT on everything inside: Paragraphs AND Lists */
+/* FORCE BLACK TEXT on everything inside quotes */
 blockquote p, 
 blockquote ul, 
 blockquote li,
@@ -76,60 +55,44 @@ blockquote strong {
 }
 
 /* --- Code Blocks (Bash, JSON, etc.) --- */
+/* This combines your two previous blocks into one correct rule */
 pre, code {
-  /* Dark background for the box */
   background-color: #EDDFDA !important; 
-  
-  /* Bright text color */
   color: #1a1a1a !important; 
   
-  /* Optional: Add a border */
-  border-color: #DDC9C9; !important;
+  /* FIXED: The semicolon is now at the END */
+  border: 1px solid #DDC9C9 !important; 
 }
 
 /* --- Header Buttons --- */
 
-/* 1. Default State (The color you asked for) */
+/* 1. Default State */
 .btn {
-  
-  
-  background-color: #fcf7f2 !important;  /* Your off-white color */
-  /*background-color: #FDF8F4 !important;  /* Your off-white color */           
+  background-color: #fcf7f2 !important;  
   border: 1px solid #dcdcdc !important;
 }
 
-/* 2. Hover State (What happens when mouse is over it) */
+/* 2. Hover State */
 .btn:hover {
-  /* Make it slightly brighter (Pure White) on hover so it feels interactive */
   background-color: #564141 !important; 
 }
 
 /* --- 1. Top Banner Title (Project Name) --- */
 .project-name {
-  color: #FCF9F9 !important; /* White */
+  color: #FCF9F9 !important; 
 }
 
 /* --- 2. Content Headers (The #, ##, ### in your README) --- */
-/* We target .main-content to make sure we don't accidentally change the top banner */
 .main-content h1, 
 .main-content h2, 
 .main-content h3, 
 .main-content h4, 
 .main-content h5, 
 .main-content h6 {
-  color: #190909 !important; /* Very dark reddish-black */
-}
-/* --- Adjust Page Width --- */
-.main-content {
-  /* Default is usually 64rem. Increase this to make it wider. */
-  max-width: 80rem !important; 
-  
-  /* Optional: Ensure padding stays safe on mobile */
- /* padding: 2rem 2rem !important;*/
+  color: #190909 !important; 
 }
 
-/* Optional: If you want it HUGE (almost full screen) */
-/* .main-content {
-  max-width: 95% !important;
-} 
-*/
+/* --- Adjust Page Width --- */
+.main-content {
+  max-width: 80rem !important; 
+}
