@@ -89,3 +89,16 @@ pre, code {
 h2, h3, h4, h5, h6 {
   color: #190909 !important; /* Change this to the color you want */
 }
+
+/* --- Header Buttons (View on GitHub / Download) --- */
+.btn {
+  /* The specific background color you asked for */
+  background-color: #fcf7f2 !important;
+  
+  /* Text Color: Must be dark to be readable on the light background */
+ /* color: #1e2327 !important; 
+  
+  /* Optional: A light border so it doesn't disappear into the header */
+  /*border: 1px solid #dcdcdc !important;
+  */
+}
