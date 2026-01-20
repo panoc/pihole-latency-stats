@@ -38,16 +38,15 @@
   color: #d92b2b; /* Pi-hole "Red" or any color you like */
 }
 
-/* --- Main Page Background --- */
-body {
-  background-color: #f4f6f8; /* Soft bluish-grey */
-  color: #333333;            /* Dark text */
-}
-
 /* --- Main Page Background (Soft Red) --- */
 body {
   background-color: #fcf7f2; /* A very light, soft reddish-grey */
   color: #333333;            /* Dark grey text so it stands out */
+
+  background-image: linear-gradient(180deg, #fcf7f2, #EAE7E3) !important;
+  background-attachment: fixed !important;
+  background-repeat: no-repeat !important;
+  background-size: cover !important;
 }
 
 /* Optional: Update code blocks to fit the warmer theme */
