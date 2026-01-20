@@ -85,9 +85,17 @@ pre, code {
   /* Optional: Add a border */
   border: 1px solid #CCBFBB;
 }
-/* --- Headings ( #, ##, ### ) --- */
-h1, h2, h3, h4, h5, h6 {
-  color: #190909 !important; /* Change this to the color you want */
+
+/* --- Main Header # (H1) ONLY --- */
+h1 {
+  /* This color applies ONLY to single # headers */
+  color: #FFFCFC !important; /* Example: Gold/Orange */
+}
+
+/* --- Other Headers ##, ###, #### ... --- */
+h2, h3, h4, h5, h6 {
+  /* This color applies to ##, ###, etc. */
+  color: #190909 !important; /* Example: White */
 }
 
 
