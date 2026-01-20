@@ -85,12 +85,7 @@ pre, code {
   /* Optional: Add a border */
   border: 1px solid #CCBFBB;
 }
-
-pre, code {
-  background-color: #1a1a1a !important; /* <--- Keep this line exactly as it is */
-  
-  /* CHANGE ONLY THIS LINE to the color you want */
-  color: #2b1111 !important; 
-  
-  border: 1px solid #333333;
+/* --- Headings ( #, ##, ### ) --- */
+h1, h2, h3, h4, h5, h6 {
+  color: #2b1111 !important; /* Change this to the color you want */
 }
