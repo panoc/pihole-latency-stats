@@ -1,0 +1,37 @@
+---
+---
+
+/* IMPORTS THE DEFAULT CAYMAN THEME FIRST */
+@import "{{ site.theme }}";
+
+/* --- CUSTOM COLORS START HERE --- */
+
+/* 1. The Big Header Gradient */
+.page-header {
+  /* Change these two Hex codes to whatever colors you want */
+  background-color: #1e2327; 
+  /* background-image: linear-gradient(120deg, #2b3238, #1e2327); */
+  background-image: linear-gradient(120deg, #420808, #1a1a1a);
+}
+
+/* 2. The Title Text (Project Name) */
+.project-name {
+  color: #ffffff; /* White */
+}
+
+/* 3. The Tagline Text */
+.project-tagline {
+  color: #aeb4b9; /* Light Grey */
+}
+
+/* 4. Buttons (Download/View on GitHub) */
+.btn {
+  background-color: #f6f6f6;
+  color: #1e2327; /* Dark text */
+  border-color: #f6f6f6;
+}
+
+/* 5. Links in the main text */
+.main-content a {
+  color: #d92b2b; /* Pi-hole "Red" or any color you like */
+}
