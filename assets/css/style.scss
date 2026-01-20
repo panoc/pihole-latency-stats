@@ -6,6 +6,23 @@
 
 /* --- CUSTOM COLORS START HERE --- */
 
+/* --- Add Logo Before Title --- */
+.project-name::before {
+  content: "";
+  display: block;                /* Forces it to sit on its own line above text */
+  margin: 0 auto 1rem auto;      /* Centers it and adds space below */
+  
+  /* Size of the logo */
+  width: 80px; 
+  height: 80px;
+  
+  /* The Image Source */
+  background-image: url('{{ site.github.url }}/assets/favicon.png');
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
 /* 1. The Big Header Gradient */
 .page-header {
   background-color: #1e2327; 
