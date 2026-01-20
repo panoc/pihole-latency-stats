@@ -31,23 +31,6 @@
   background-repeat: no-repeat;
   background-position: center;
 }
-/*.project-name::before {
-  content: "";
-  display: inline-block;         /* Sits on the same line */
-  vertical-align: middle;        /* Aligns with the middle of the text */
-  margin-right: 10px;            /* Space between logo and text */
-  
-  /* Size of the logo */
-  width: 30px; 
-  height: 30px;
-  
-  /* The Image Source */
-  background-image: url('{{ site.github.url }}/assets/favicon.png');
-  background-size: contain;
-  background-repeat: no-repeat;
-  background-position: center;
-}
-*/
 
 /* 1. The Big Header Gradient */
 .page-header {
