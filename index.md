@@ -30,17 +30,6 @@ This tool helps you answer: *"Is my DNS slow because of my upstream provider, or
 * `sqlite3` (usually installed by default)
 * *(Optional)* `unbound` and `unbound-host` (for Unbound statistics)
 
-## **Quick Start**
-
-Download and run:
-
-```bash
-wget -O pihole_stats.sh https://github.com/panoc/pihole-latency-stats/releases/latest/download/pihole_stats.sh
-chmod +x pihole_stats.sh
-sudo ./pihole_stats.sh
-
-```
-
 ## **Usage**
 
 You can run the script with various flags to customize the analysis.
