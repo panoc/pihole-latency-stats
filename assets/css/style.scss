@@ -5,10 +5,33 @@
 @import "{{ site.theme }}";
 
 /* --- CUSTOM COLORS START HERE --- */
+/* --- 1. Top Banner Title (Project Name) --- */
+.project-name {
+  color: #FCF9F9 !important; /* White */
+  
+  /* FLEXBOX MAGIC: Centers everything perfectly */
+  display: flex !important;
+  align-items: center !important;     /* Vertical center */
+  justify-content: center !important; /* Horizontal center */
+}
 
-/* --- Add Logo Before Title --- */
-/* --- Add Logo Next To Title --- */
+/* --- 2. The Logo Icon (Pseudo-element) --- */
 .project-name::before {
+  content: "";
+  display: block;                /* Acts as a proper box now */
+  margin-right: 10px;            /* Space between logo and text */
+  
+  /* Size of the logo */
+  width: 37px; 
+  height: 37px;
+  
+  /* Background Image Settings */
+  background-image: url('{{ site.github.url }}/assets/favicon.png');
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+/*.project-name::before {
   content: "";
   display: inline-block;         /* Sits on the same line */
   vertical-align: middle;        /* Aligns with the middle of the text */
@@ -24,6 +47,7 @@
   background-repeat: no-repeat;
   background-position: center;
 }
+*/
 
 /* 1. The Big Header Gradient */
 .page-header {
@@ -33,7 +57,7 @@
 
 /* 2. The Title Text (Project Name) */
 .project-name {
-  color: #ffffff; 
+  color: #FFFDFC; 
 }
 
 /* 3. The Tagline Text */
