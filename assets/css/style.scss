@@ -7,14 +7,16 @@
 /* --- CUSTOM COLORS START HERE --- */
 
 /* --- Add Logo Before Title --- */
+/* --- Add Logo Next To Title --- */
 .project-name::before {
   content: "";
-  display: block;                /* Forces it to sit on its own line above text */
-  margin: 0 auto 1rem auto;      /* Centers it and adds space below */
+  display: inline-block;         /* Sits on the same line */
+  vertical-align: middle;        /* Aligns with the middle of the text */
+  margin-right: 15px;            /* Space between logo and text */
   
   /* Size of the logo */
-  width: 80px; 
-  height: 80px;
+  width: 50px; 
+  height: 50px;
   
   /* The Image Source */
   background-image: url('{{ site.github.url }}/assets/favicon.png');
