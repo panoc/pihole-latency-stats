@@ -22,7 +22,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 # ==============================================================================
 
-VERSION="3.2.5"
+VERSION="3.3"
 
 # --- 0. CRITICAL LOCALE FIX ---
 # Force C locale to prevent decimal errors (comma vs dot) in math operations
@@ -136,10 +136,26 @@ CONFIG_ARGS='$CONFIG_ARGS'
 
 # Latency Tiers (Upper Limits in Milliseconds)
 # Add more values (L09, L10...) to create granular buckets.
-L01="$L01"; L02="$L02"; L03="$L03"; L04="$L04"; L05="$L05"
-L06="$L06"; L07="$L07"; L08="$L08"; L09="$L09"; L10="$L10"
-L11="$L11"; L12="$L12"; L13="$L13"; L14="$L14"; L15="$L15"
-L16="$L16"; L17="$L17"; L18="$L18"; L19="$L19"; L20="$L20"
+L01="$L01"
+L02="$L02"
+L03="$L03"
+L04="$L04"
+L05="$L05"
+L06="$L06"
+L07="$L07"
+L08="$L08"
+L09="$L09"
+L10="$L10"
+L11="$L11"
+L12="$L12"
+L13="$L13"
+L14="$L14"
+L15="$L15"
+L16="$L16"
+L17="$L17"
+L18="$L18"
+L19="$L19"
+L20="$L20"
 EOF
     chmod 644 "$target_file"
     fix_perms "$target_file"
