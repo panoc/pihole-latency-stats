@@ -114,15 +114,3 @@ sudo crontab -e
 
 * **`-c`**: Tells it which profile to use.
 * **`-s`**: Tells it to be "Silent" (essential for background tasks).
-
-
-
----
-
-### Summary Checklist for Noobs:
-
-* **Create:** `sudo ./pihole_stats.sh -mc name.conf`
-* **Edit:** Put your favorite flags in `CONFIG_ARGS='...'`
-* **Dash:** Set `JSON_NAME="dash_name.json"` and add `-j` to args
-* **Run:** `sudo ./pihole_stats.sh -c name.conf`
-* **Web:** Visit `dash.html?p=name`
