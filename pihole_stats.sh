@@ -265,10 +265,7 @@ start_spinner() {
     # Run in background
     (
         term_cols=$(tput cols 2>/dev/null || echo 80)
-        # Use user variable width_divider (default 3)
         width=$(( term_cols / ${width_divider:-3} ))
-        
-        # Ensure min width for visual sanity
         [ "$width" -lt 5 ] && width=5
         
         start_len=$(( width % 2 == 0 ? 2 : 1 ))
@@ -282,7 +279,6 @@ start_spinner() {
             padding=$(( (width - len) / 2 ))
             pad=$(printf "%${padding}s")
             
-            # SAFE BAR GENERATION (Bash replace): Works even in LC_ALL=C
             printf -v bar_raw "%*s" "$len" ""
             bar="${bar_raw// /$char}"
             
@@ -313,8 +309,10 @@ start_spinner() {
         done
     ) &
     SPINNER_PID=$!
-    # Trap only EXIT (fixes double Ctrl+C issue)
-    trap 'kill $SPINNER_PID 2>/dev/null; echo "" >&2; tput cnorm >&2' EXIT
+    
+    # CRITICAL FIX: The trap must EXIT the script after killing the spinner
+    trap 'kill $SPINNER_PID 2>/dev/null; tput cnorm >&2; echo -e "\n\nProgram aborted by user." >&2; exit 1' INT TERM
+    trap 'kill $SPINNER_PID 2>/dev/null; tput cnorm >&2' EXIT
 }
 
 stop_spinner() {
