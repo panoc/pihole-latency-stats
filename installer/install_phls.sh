@@ -22,7 +22,7 @@
 # ==============================================================================
 
 # --- VERSION TRACKING ---
-VERSION="v3.5"
+VERSION="v3.5.1"
 
 # --- CONFIGURATION: URLs (Stable Release Links) ---
 URL_SCRIPT="https://github.com/panoc/pihole-latency-stats/releases/latest/download/pihole_stats.sh"
@@ -32,6 +32,11 @@ URL_FAVICON="https://github.com/panoc/pihole-latency-stats/releases/latest/downl
 # Remote Dependencies
 URL_BOOTSTRAP="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
 URL_CHARTJS="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"
+
+# --- ANIMATION SETTINGS (Hardcoded) ---
+target_time=2.0      # Seconds for one full cycle
+width_divider=4      # 1/4 of screen width
+char="|"             # Character for the bar
 
 # --- DETECT REAL USER (Sudo Handling) ---
 if [ -n "$SUDO_USER" ]; then
@@ -110,6 +115,72 @@ log_file() {
     echo "${tag}:${file}" >> "$FINAL_INSTALL_DIR/$MANIFEST_FILE"
 }
 
+# --- ANIMATION LOGIC ---
+start_spinner() {
+    # Run in background
+    (
+        term_cols=$(tput cols 2>/dev/null || echo 80)
+        width=$(( term_cols / width_divider ))
+        # Ensure min width for visual sanity
+        [ "$width" -lt 5 ] && width=5
+        
+        start_len=$(( width % 2 == 0 ? 2 : 1 ))
+        frames=()
+
+        # Phase A: Grow
+        for (( len=start_len; len<=width; len+=2 )); do
+            padding=$(( (width - len) / 2 ))
+            pad=$(printf "%${padding}s")
+            
+            # SAFE BAR GENERATION
+            printf -v bar_raw "%*s" "$len" ""
+            bar="${bar_raw// /$char}"
+            
+            frames+=("|$pad$bar$pad|")
+        done
+
+        # Phase B: Shrink
+        for (( len=width-2; len>=start_len; len-=2 )); do
+            padding=$(( (width - len) / 2 ))
+            pad=$(printf "%${padding}s")
+            
+            printf -v bar_raw "%*s" "$len" ""
+            bar="${bar_raw// /$char}"
+            
+            frames+=("|$pad$bar$pad|")
+        done
+
+        interval=$(awk "BEGIN {print $target_time / ${#frames[@]}}")
+        
+        tput civis >&2 # Hide cursor
+        
+        while true; do
+            for frame in "${frames[@]}"; do
+                tput rc >&2   # Return to saved position
+                printf "%s" "$frame" >&2
+                sleep "$interval"
+            done
+        done
+    ) &
+    SPINNER_PID=$!
+    # Trap only EXIT
+    trap 'kill $SPINNER_PID 2>/dev/null; tput cnorm >&2' EXIT
+}
+
+stop_spinner() {
+    if [ -n "$SPINNER_PID" ]; then
+        kill "$SPINNER_PID" 2>/dev/null
+        wait "$SPINNER_PID" 2>/dev/null
+        tput rc >&2    # Restore cursor to start of spinner
+        tput el >&2    # Clear line to right
+        echo "Done!" >&2
+        tput cnorm >&2 # Show cursor
+        SPINNER_PID=""
+        # Reset trap to default
+        trap - EXIT
+    fi
+}
+
 # ==============================================================================
 #                               UNINSTALLATION LOGIC (-un)
 # ==============================================================================
@@ -185,6 +256,7 @@ if [[ "$1" == "-un" ]]; then
     esac
     exit 0
 fi
+
 # ==============================================================================
 #                               INSTALLATION LOGIC
 # ==============================================================================
@@ -228,27 +300,21 @@ fix_perms "$FINAL_INSTALL_DIR"
 echo "# PHLS Installed Files List" > "$FINAL_INSTALL_DIR/$MANIFEST_FILE"
 fix_perms "$FINAL_INSTALL_DIR/$MANIFEST_FILE"
 
-# --- 2. INSTALL MAIN SCRIPT ---
-echo "⬇️  Downloading pihole_stats.sh..."
+# --- 2. DOWNLOAD SECTION WITH ANIMATION ---
+echo -n "⬇️  Downloading components... " >&2
+tput sc >&2
+start_spinner
+
+# Main Script
 curl -sL "$URL_SCRIPT" -o "$FINAL_INSTALL_DIR/pihole_stats.sh"
-[ ! -s "$FINAL_INSTALL_DIR/pihole_stats.sh" ] && { echo "❌ Download failed."; exit 1; }
+[ ! -s "$FINAL_INSTALL_DIR/pihole_stats.sh" ] && { stop_spinner; echo "❌ Download failed."; exit 1; }
 chmod +x "$FINAL_INSTALL_DIR/pihole_stats.sh"
 fix_perms "$FINAL_INSTALL_DIR/pihole_stats.sh"
 log_file "SCRIPT" "$FINAL_INSTALL_DIR/pihole_stats.sh"
-echo "✅ Script installed."
 
-echo "⚙️  Generating configuration..."
-# Generate the config and fix ownership immediately
-sudo -u "$REAL_USER" bash "$FINAL_INSTALL_DIR/pihole_stats.sh" -mc "$FINAL_INSTALL_DIR/pihole_stats.conf" > /dev/null 2>&1
-if [ -f "$FINAL_INSTALL_DIR/pihole_stats.conf" ]; then
-    chown "$REAL_USER":"$(id -gn "$REAL_USER")" "$FINAL_INSTALL_DIR/pihole_stats.conf"
-fi
-
-# --- 3. INSTALL DASHBOARD (Optional) ---
+# Dashboard (Optional)
 DASH_INSTALLED_PATH=""
 if [ "$INSTALL_DASHBOARD" = true ]; then
-    echo "----------------------------------------"
-    echo "Installing Dashboard..."
     [ ! -d "$DEFAULT_DASH_DIR" ] && { mkdir -p "$DEFAULT_DASH_DIR"; chown www-data:www-data "$DEFAULT_DASH_DIR"; chmod 775 "$DEFAULT_DASH_DIR"; }
 
     dl_and_log() {
@@ -264,19 +330,28 @@ if [ "$INSTALL_DASHBOARD" = true ]; then
     chown -R www-data:www-data "$DEFAULT_DASH_DIR"
     chmod -R 755 "$DEFAULT_DASH_DIR"
     DASH_INSTALLED_PATH="$DEFAULT_DASH_DIR"
-    echo "✅ Dashboard installed to: $DEFAULT_DASH_DIR"
-
-    if ask_yn "Do you want to save json log file to dashboard directory?"; then
-        CONF_FILE="$FINAL_INSTALL_DIR/pihole_stats.conf"
-        ESCAPED_PATH=$(echo "$DEFAULT_DASH_DIR" | sed 's/\//\\\//g')
-        sed -i "s/^SAVE_DIR_JSON=\"\"/SAVE_DIR_JSON=\"$ESCAPED_PATH\"/" "$CONF_FILE"
-        sed -i "s/^JSON_NAME=\"\"/JSON_NAME=\"dash_default.json\"/" "$CONF_FILE"
-        echo "✅ Configuration updated."
-        
-        echo "📊 Priming dashboard data..."
-        sudo "$FINAL_INSTALL_DIR/pihole_stats.sh" -j > /dev/null
-    fi
 fi
+
+stop_spinner
+
+# --- 3. CONFIGURATION & FINALIZE ---
+echo "⚙️  Generating configuration..."
+# Generate the config and fix ownership immediately
+sudo -u "$REAL_USER" bash "$FINAL_INSTALL_DIR/pihole_stats.sh" -mc "$FINAL_INSTALL_DIR/pihole_stats.conf" > /dev/null 2>&1
+if [ -f "$FINAL_INSTALL_DIR/pihole_stats.conf" ]; then
+    chown "$REAL_USER":"$(id -gn "$REAL_USER")" "$FINAL_INSTALL_DIR/pihole_stats.conf"
+fi
+
+if [ "$INSTALL_DASHBOARD" = true ]; then
+    CONF_FILE="$FINAL_INSTALL_DIR/pihole_stats.conf"
+    ESCAPED_PATH=$(echo "$DEFAULT_DASH_DIR" | sed 's/\//\\\//g')
+    sed -i "s/^SAVE_DIR_JSON=\"\"/SAVE_DIR_JSON=\"$ESCAPED_PATH\"/" "$CONF_FILE"
+    sed -i "s/^JSON_NAME=\"\"/JSON_NAME=\"dash_default.json\"/" "$CONF_FILE"
+    
+    echo "📊 Priming dashboard data..."
+    sudo "$FINAL_INSTALL_DIR/pihole_stats.sh" -j > /dev/null
+fi
+
 # --- 4. SAVE INSTALL STATE ---
 cat <<EOF > "$FINAL_INSTALL_DIR/$STATE_FILE"
 # PHLS Installation Record
@@ -309,8 +384,18 @@ echo ""
 
 if [ "$INSTALL_DASHBOARD" = true ]; then
     PIHOLE_IP=$(hostname -I | awk '{print $1}')
+    
+    # --- Port Detection for v6 Compatibility ---
+    # Checks pihole.toml for custom web ports; defaults to 80 if not found
+    PORT=$(grep "webserver.port" /etc/pihole/pihole.toml 2>/dev/null | cut -d'=' -f2 | tr -d ' "')
+    [ -z "$PORT" ] && PORT="80"
+    
+    # Only append the port to the URL if it is not the default 80
+    DISPLAY_URL="$PIHOLE_IP"
+    [ "$PORT" != "80" ] && DISPLAY_URL="$PIHOLE_IP:$PORT"
+
     echo "Dashboard URL:"
-    echo -e "  \033[1;36mhttp://$PIHOLE_IP/admin/img/dash/dash.html?p=default\033[0m"
+    echo -e "  \033[1;36mhttp://$DISPLAY_URL/admin/img/dash/dash.html?p=default\033[0m"
     echo ""
 fi
 
