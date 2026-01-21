@@ -126,5 +126,3 @@ sudo crontab -e
 * **Dash:** Set `JSON_NAME="dash_name.json"` and add `-j` to args
 * **Run:** `sudo ./pihole_stats.sh -c name.conf`
 * **Web:** Visit `dash.html?p=name`
-
-**Would you like me to create an example for a "Security" profile that only monitors blocked domains?**
