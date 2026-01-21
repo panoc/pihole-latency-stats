@@ -58,6 +58,10 @@ wget -O install_phls.sh https://github.com/panoc/pihole-latency-stats/releases/l
   <img src="https://raw.githubusercontent.com/panoc/pihole-latency-stats/main/assets/dash_ss_1280.jpg" alt="Dashboard Preview" width="100%">
 </p>
 
+### Dashboard Automation (Important)
+The web dashboard auto-refreshes its display every 60 seconds, but it requires a **cron job** to run the analysis script and generate fresh data. Without this, the dashboard will show the same static data until the script is run manually.
+To automate this, add a cron job to your system.
+
 ---
 
 ##  Real-World Use Cases
