@@ -22,7 +22,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 # ==============================================================================
 
-VERSION="3.2.3"
+VERSION="3.2.5"
 
 # --- 0. CRITICAL LOCALE FIX ---
 # Force C locale to prevent decimal errors (comma vs dot) in math operations
@@ -45,6 +45,8 @@ CONFIG_TO_LOAD="$DEFAULT_CONFIG"
 DBfile="/etc/pihole/pihole-FTL.db"
 SAVE_DIR_TXT=""
 SAVE_DIR_JSON=""
+TXT_NAME=""
+JSON_NAME=""
 CONFIG_ARGS=""
 MAX_LOG_AGE=""
 ENABLE_UNBOUND="auto"
@@ -52,9 +54,10 @@ LAYOUT="auto"
 DEFAULT_FROM="" 
 DEFAULT_TO=""
 
-# --- ANIMATION SETTINGS ---
+# --- ANIMATION SETTINGS (Hardcoded) ---
 target_time=4.0      # Seconds for one full cycle
 width_divider=3      # 1/3 of screen width
+char="|"             # Character for the bar
 
 # Default Tiers
 L01="0.009"; L02="0.1"; L03="1"; L04="10"; L05="50"
@@ -69,6 +72,7 @@ TIME_LABEL="All Time"
 # --- HELPER: FIX PERMISSIONS ---
 fix_perms() {
     local target="$1"
+    # If run via sudo, SUDO_UID and SUDO_GID are set. Transfer ownership back to the user.
     if [ -n "$SUDO_UID" ] && [ -n "$SUDO_GID" ] && [ -f "$target" ]; then
         chown "$SUDO_UID:$SUDO_GID" "$target"
     fi
@@ -77,13 +81,11 @@ fix_perms() {
 # --- 2. CONFIGURATION WRITER ---
 write_config() {
     local target_file="$1"
-    local _db="${DBfile:-/etc/pihole/pihole-FTL.db}"
-    local _unb="${ENABLE_UNBOUND:-auto}"
-    local _lay="${LAYOUT:-auto}"
     
+    # We use cat to write the file, injecting current variable values
     cat <<EOF > "$target_file"
 # ================= PI-HOLE STATS CONFIGURATION =================
-DBfile="$_db"
+DBfile="$DBfile"
 
 # Default Save Directories (REQUIRED for Auto-Deletion to work)
 # Separate directories for Text and JSON reports.
@@ -97,6 +99,12 @@ SAVE_DIR_TXT="$SAVE_DIR_TXT"
 # Example: SAVE_DIR_JSON="/home/pi/pihole_reports/json"
 SAVE_DIR_JSON="$SAVE_DIR_JSON"
 
+# Default Filenames (If set, the -f flag is no longer required)
+# Example: TXT_NAME="daily_report.txt"
+# Example: JSON_NAME="dash_default.json"
+TXT_NAME="$TXT_NAME"
+JSON_NAME="$JSON_NAME"
+
 # Auto-Delete Old Reports (Retention Policy)
 # Delete files in SAVE_DIR_TXT and SAVE_DIR_JSON older than X days.
 # Example: MAX_LOG_AGE="30"
@@ -106,25 +114,19 @@ MAX_LOG_AGE="$MAX_LOG_AGE"
 # auto  : Check if Unbound is installed & used by Pi-hole.
 # true  : Always append Unbound stats.
 # false : Never show Unbound stats (unless -unb is used).
-ENABLE_UNBOUND="$_unb"
+ENABLE_UNBOUND="$ENABLE_UNBOUND"
 
 # Visual Layout
 # auto       : Detects terminal width. >100 columns = Horizontal, else Vertical.
 # vertical   : Forces standard vertical list view.
 # horizontal : Forces split-pane dashboard view.
-LAYOUT="$_lay"
+LAYOUT="$LAYOUT"
 
 # Custom Date Range Defaults (Optional)
 # Use natural language (e.g. "yesterday", "today 00:00") or dates.
 # CLI flags (-24h, -from) will OVERRIDE these settings.
 DEFAULT_FROM="$DEFAULT_FROM"
 DEFAULT_TO="$DEFAULT_TO"
-
-# Loading Animation Settings
-# target_time   : Seconds for one full breath cycle (default 4.0)
-# width_divider : Screen width divider (3 = 1/3 of screen width)
-target_time="$target_time"
-width_divider="$width_divider"
 
 # [OPTIONAL] Default Arguments
 # If set, these arguments will REPLACE any CLI flags.
@@ -134,26 +136,10 @@ CONFIG_ARGS='$CONFIG_ARGS'
 
 # Latency Tiers (Upper Limits in Milliseconds)
 # Add more values (L09, L10...) to create granular buckets.
-L01="$L01"
-L02="$L02"
-L03="$L03"
-L04="$L04"
-L05="$L05"
-L06="$L06"
-L07="$L07"
-L08="$L08"
-L09="$L09"
-L10="$L10"
-L11="$L11"
-L12="$L12"
-L13="$L13"
-L14="$L14"
-L15="$L15"
-L16="$L16"
-L17="$L17"
-L18="$L18"
-L19="$L19"
-L20="$L20"
+L01="$L01"; L02="$L02"; L03="$L03"; L04="$L04"; L05="$L05"
+L06="$L06"; L07="$L07"; L08="$L08"; L09="$L09"; L10="$L10"
+L11="$L11"; L12="$L12"; L13="$L13"; L14="$L14"; L15="$L15"
+L16="$L16"; L17="$L17"; L18="$L18"; L19="$L19"; L20="$L20"
 EOF
     chmod 644 "$target_file"
     fix_perms "$target_file"
@@ -184,8 +170,10 @@ if [ -f "$CONFIG_TO_LOAD" ]; then
         SAVE_DIR_TXT="$SAVE_DIR"
     fi
     
-    # Auto-Update Config if missing new keys
-    if ! grep -q "SAVE_DIR_JSON=" "$CONFIG_TO_LOAD"; then write_config "$CONFIG_TO_LOAD"; fi
+    # Auto-Repair/Update Config: If new variables are missing OR old animation vars exist, rewrite the file
+    if ! grep -q "JSON_NAME=" "$CONFIG_TO_LOAD" || grep -q "target_time=" "$CONFIG_TO_LOAD"; then
+        write_config "$CONFIG_TO_LOAD"
+    fi
 elif [ "$CONFIG_TO_LOAD" == "$DEFAULT_CONFIG" ]; then
     write_config "$DEFAULT_CONFIG" > /dev/null; source "$DEFAULT_CONFIG"
 fi
@@ -199,10 +187,10 @@ show_help() {
     echo "Pi-hole Latency Stats v$VERSION"
     echo "Usage: sudo ./pihole_stats.sh [OPTIONS]"
     echo "  -24h, -7d        : Quick time filter"
-    echo "  -from, -to       : Custom date range (e.g. -from 'yesterday')"
-    echo "  -up, -pi, -nx    : Query modes (Upstream/Pihole/NoBlock)"
-    echo "  -dm, -edm        : Domain filter (Partial/Exact)"
-    echo "  -f <file>        : Save to file"
+    echo "  -from, -to       : Custom date range"
+    echo "  -up, -pi, -nx    : Query modes"
+    echo "  -dm, -edm        : Domain filter"
+    echo "  -f <file>        : Save to file (Overrides config default)"
     echo "  -j               : JSON output"
     echo "  -s               : Silent mode"
     echo "  -seq, -ts        : Naming options"
@@ -265,20 +253,19 @@ start_spinner() {
     # Run in background
     (
         term_cols=$(tput cols 2>/dev/null || echo 80)
-        width=$(( term_cols / ${width_divider:-3} ))
+        width=$(( term_cols / width_divider ))
+        # Ensure min width for visual sanity
         [ "$width" -lt 5 ] && width=5
         
         start_len=$(( width % 2 == 0 ? 2 : 1 ))
         frames=()
-
-        # Hardcoded Character
-        local char="|"
 
         # Phase A: Grow
         for (( len=start_len; len<=width; len+=2 )); do
             padding=$(( (width - len) / 2 ))
             pad=$(printf "%${padding}s")
             
+            # SAFE BAR GENERATION (Bash replace): Works even in LC_ALL=C
             printf -v bar_raw "%*s" "$len" ""
             bar="${bar_raw// /$char}"
             
@@ -296,7 +283,7 @@ start_spinner() {
             frames+=("|$pad$bar$pad|")
         done
 
-        interval=$(awk "BEGIN {print ${target_time:-4.0} / ${#frames[@]}}")
+        interval=$(awk "BEGIN {print $target_time / ${#frames[@]}}")
         
         tput civis >&2 # Hide cursor
         
@@ -309,10 +296,8 @@ start_spinner() {
         done
     ) &
     SPINNER_PID=$!
-    
-    # CRITICAL FIX: The trap must EXIT the script after killing the spinner
-    trap 'kill $SPINNER_PID 2>/dev/null; tput cnorm >&2; echo -e "\n\nProgram aborted by user." >&2; exit 1' INT TERM
-    trap 'kill $SPINNER_PID 2>/dev/null; tput cnorm >&2' EXIT
+    # Trap only EXIT (fixes double Ctrl+C issue)
+    trap 'kill $SPINNER_PID 2>/dev/null; echo "" >&2; tput cnorm >&2' EXIT
 }
 
 stop_spinner() {
@@ -328,7 +313,6 @@ stop_spinner() {
         trap - EXIT
     fi
 }
-
 # --- 8. DATA COLLECTION (UNBOUND) ---
 U_STATUS="Disabled"; U_TOTAL="0"; U_HITS="0"; U_MISS="0"; U_PRE="0"; 
 U_PCT_HIT="0.00"; U_PCT_MISS="0.00"; U_PCT_PRE="0.00"
@@ -382,6 +366,7 @@ collect_unbound_stats() {
 }
 
 to_mb() { awk "BEGIN {printf \"%.2f\", $1 / 1024 / 1024}"; }
+
 # --- 9. DATA COLLECTION (PI-HOLE) ---
 P_TOTAL=0; P_INVALID=0; P_VALID=0; P_BLOCKED=0; P_ANALYZED=0; P_IGNORED=0
 P_AVG="0.00"; P_MED="0.00"; P_95="0.00"
@@ -492,7 +477,7 @@ print_text_report() {
             R_LINES+=("Cache Misses  : $U_MISS ($U_PCT_MISS%)"); R_LINES+=("Prefetch Jobs : $U_PRE ($U_PCT_PRE% of Hits)")
             R_LINES+=(""); R_LINES+=("----- Cache Memory Usage (Used / Limit) -----")
             R_LINES+=("Msg Cache   : $(to_mb $U_MEM_MSG)MB / $(to_mb $U_LIM_MSG)MB  ($U_PCT_MEM_MSG%)")
-            R_LINES+=("RRset Cache : $(to_mb $U_MEM_RR)MB / $(to_mb $U_MEM_RR)MB ($U_PCT_MEM_RR%)")
+            R_LINES+=("RRset Cache : $(to_mb $U_MEM_RR)MB / $(to_mb $U_LIM_RR)MB ($U_PCT_MEM_RR%)")
             if [ "$ENABLE_UCC" = true ]; then R_LINES+=("Messages (Queries): $UCC_MSG"); R_LINES+=("RRsets (Records)  : $UCC_RR"); fi
         else R_LINES+=(""); R_LINES+=("⚠️  Permission Denied or Service Down"); R_LINES+=("   Try running with 'sudo'"); fi
     fi
@@ -573,6 +558,11 @@ fi
 TEXT_REPORT=$(print_text_report)
 if [ "$JSON_OUTPUT" = true ]; then JSON_REPORT=$(print_json_report); fi
 
+# SMART OUTPUT FILENAME LOGIC
+if [ -z "$OUTPUT_FILE" ]; then
+    if [ "$JSON_OUTPUT" = true ]; then OUTPUT_FILE="$JSON_NAME"; else OUTPUT_FILE="$TXT_NAME"; fi
+fi
+
 if [ -n "$OUTPUT_FILE" ]; then
     # Select Target Directory
     TARGET_DIR=""
@@ -595,12 +585,13 @@ if [ -n "$OUTPUT_FILE" ]; then
 fi
 
 if [ "$SILENT_MODE" = false ]; then
-    if [ "$JSON_OUTPUT" = true ] && [ -n "$OUTPUT_FILE" ]; then echo "$TEXT_REPORT"
+    if [ "$JSON_OUTPUT" = true ] && [ -n "$OUTPUT_FILE" ] && [ "$OUTPUT_FILE" != "$JSON_NAME" ]; then echo "$TEXT_REPORT"
     elif [ "$JSON_OUTPUT" = true ] && [ -z "$OUTPUT_FILE" ]; then echo "$JSON_REPORT"
+    elif [ "$JSON_OUTPUT" = true ] && [ "$OUTPUT_FILE" == "$JSON_NAME" ]; then echo "$TEXT_REPORT"
     else echo "$TEXT_REPORT"; fi
 fi
 
-# Auto-Clean Logic (Checks BOTH folders if they exist)
+# AUTO-CLEAN LOGIC
 if [ -n "$MAX_LOG_AGE" ] && [[ "$MAX_LOG_AGE" =~ ^[0-9]+$ ]]; then
     CLEANED=false
     if [ -n "$SAVE_DIR_TXT" ] && [ -d "$SAVE_DIR_TXT" ]; then
