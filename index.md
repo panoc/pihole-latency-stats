@@ -5,6 +5,8 @@ layout: default
 
 This tool helps you answer: *"Is my DNS slow because of my upstream provider, or is it just my local network?"* and *"Is Unbound performing efficiently?"*
 
+---
+
 ## Features
 
 * **Latency Analysis:** Calculates Average, Median, and 95th Percentile latency.
@@ -16,6 +18,16 @@ This tool helps you answer: *"Is my DNS slow because of my upstream provider, or
 * **JSON Support:** Native JSON output for dashboards (Home Assistant, Grafana, Node-RED).
 * **Configuration Profiles:** Define default arguments inside the config file to create preset "Profiles" that override CLI flags.
 * **Zero Dependencies:** Uses standard tools (`sqlite3`, `bc`, `awk`, `sed`) pre-installed on most Pi-hole distros.
+
+---
+
+<p align="center">
+  <a href="https://raw.githubusercontent.com/panoc/pihole-latency-stats/main/assets/dash_ss_1280.jpg" target="_blank">
+    <img src="https://raw.githubusercontent.com/panoc/pihole-latency-stats/main/assets/dash_ss_1280.jpg" alt="Click to view full size" width="100%">
+  </a>
+</p>
+
+---
 
 ## Requirements
 
