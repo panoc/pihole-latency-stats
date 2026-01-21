@@ -168,4 +168,36 @@ If you use Unbound, PHLS provides "Deep Inspection."
 * **Memory Stats:** To see how much RAM Unbound is using, you **must** add `extended-statistics: yes` to your `unbound.conf` file.
 * **Cache Count (`-ucc`):** This tells you exactly how many DNS records are in memory. **Note:** On very slow hardware with massive caches, this might cause a 1-second pause in DNS replies, so use it sparingly!
 
+### ⚠️ Prerequisite for Memory Stats
+
+To see the **Memory Usage** breakdown (Message vs RRset cache), you must enable extended statistics in Unbound.
+
+1. Edit your config: `sudo nano /etc/unbound/unbound.conf` (or your specific config file).
+2. Add `extended-statistics: yes` inside the `server:` block:
+
+```yaml
+server:
+    # ... other settings ...
+    extended-statistics: yes
+
+```
+
+3. Restart Unbound: `sudo service unbound restart`
+
+*Without this setting, Memory Usage will report 0 MB.*
+
+### ⚠️ Performance Note: Unbound Cache Counting (`-ucc`)
+
+The `-ucc` flag provides deep insights by counting the exact number of items in your Unbound RAM cache. To achieve this, it triggers a cache dump.
+
+**Please use this flag responsibly:**
+
+* **How it works:** Unbound **locks its memory** to read the data.
+* **The Impact:** While locked, Unbound momentarily **pauses DNS resolution**.
+* For typical home use (1k–50k items), this freeze is instant (milliseconds) and unnoticeable.
+* For very large caches (100k+ items), this can cause a 1–2 second delay in DNS replies.
+
+
+* **Recommendation:** Use this flag for **periodic reporting** (e.g., hourly/daily Cron jobs) or manual spot-checks. **Do not** run it in a rapid "live" loop (e.g., every 5 seconds).
+
 ---
