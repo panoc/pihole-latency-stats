@@ -22,7 +22,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 # ==============================================================================
 
-VERSION="3.3"
+VERSION="3.3.1"
 
 # --- 0. CRITICAL LOCALE FIX ---
 # Force C locale to prevent decimal errors (comma vs dot) in math operations
