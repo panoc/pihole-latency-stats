@@ -22,7 +22,7 @@
 # ==============================================================================
 
 # --- VERSION TRACKING ---
-VERSION="v3.3.1"
+VERSION="v3.5"
 
 # --- CONFIGURATION: URLs (Stable Release Links) ---
 URL_SCRIPT="https://github.com/panoc/pihole-latency-stats/releases/latest/download/pihole_stats.sh"
