@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+/* v3.3*/
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pi-hole Latency Stats Dashboard</title>
@@ -372,18 +373,18 @@
 
     let refreshSeconds = 60;
     const urlParams = new URLSearchParams(window.location.search);
-    const profile = urlParams.get('p'); 
-    let jsonFilename = 'dash.json';
-    
-    if (profile) {
-        const safeProfile = profile.replace(/[^a-z0-9]/gi, '');
-        jsonFilename = 'dash_' + safeProfile + '.json';
-        document.title = "Stats: " + safeProfile.toUpperCase();
-        const profileContainer = document.getElementById('profile-container');
-        const profileText = document.getElementById('profile-indicator');
-        profileContainer.style.display = 'block';
-        profileText.innerText = "Profile loaded : " + safeProfile;
-    }
+const profile = urlParams.get('p') || 'default'; // Now defaults to 'default'
+let jsonFilename = 'dash_' + profile + '.json';
+
+
+if (profile !== 'default') {
+    const safeProfile = profile.replace(/[^a-z0-9]/gi, '');
+    document.title = "Stats: " + safeProfile.toUpperCase();
+    document.getElementById('profile-container').style.display = 'block';
+    document.getElementById('profile-indicator').innerText = "Profile loaded : " + safeProfile;
+} else {
+    document.getElementById('profile-container').style.display = 'none';
+}
 
     async function fetchData() {
         try {
