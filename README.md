@@ -52,6 +52,14 @@ wget -O install_phls.sh https://github.com/panoc/pihole-latency-stats/releases/l
 
 ---
 
+## 📸 Dashboard Preview
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/panoc/pihole-latency-stats/main/assets/dash_ss_1280.jpg" alt="Dashboard Preview" width="100%">
+</p>
+
+---
+
 ##  Real-World Use Cases
 
 ### 1. Diagnosing "Is it me or the ISP?"
