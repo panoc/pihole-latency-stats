@@ -151,11 +151,10 @@ On the first run, the script creates `pihole_stats.conf` in the same directory. 
 
 ## 5. The Web Dashboard
 
-The **v3.3 Dashboard** is the star of the show. It is a visual webpage that updates whenever you run the script with the `-j` (JSON) flag.
-
 * **View it at:** `http://<your-pi-ip>/admin/img/dash/dash.html?p=default`.
 * **How it works:** The script writes a data file (`dash_default.json`) to your web server, and the dashboard reads it.
-
+* **Autoupdate:** Dashboard auto updates every 1 minute.
+* 
 ---
 
 ## 6. Automation (Cron for Beginners)
