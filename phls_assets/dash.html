@@ -1,0 +1,1876 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pi-hole Latency Stats Dashboard</title>
+
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon.png?v=3">
+    <link href="bootstrap.min.css" rel="stylesheet">
+    <script src="chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+
+    <style>
+        :root {
+            /* --- COLOR PALETTE (Dark Default) --- */
+            --page-bg:      linear-gradient(120deg, #420808, #1a1a1a);
+            --text-main:    #e0e0e0;
+            --text-bright:  #e6dfdf;
+            --text-muted:   #b0b0b0;
+            --bg-card:      #1f2226;
+            --border-color: #343a40;
+            --chart-grid:   #343a40;
+            --chart-text:   #b0b0b0;
+            --scroll-track: #2c3036;
+            --scroll-thumb: #f39c12;
+            --btn-bg:       #343a40;
+            
+            /* --- ACCENT COLORS --- */
+            --acc-green:    #00a65a;
+            --acc-blue:     #3c8dbc;
+            --acc-vibrant:  #4aa3df;
+            --acc-yellow:   #f39c12;
+            --acc-red:      #dd4b39;
+            --acc-purple:   #9b59b6;
+            --acc-pink:     #e91e63;
+            --acc-teal:     #20c997;
+            --acc-indigo:   #6610f2;
+            --acc-cyan:     #17a2b8;
+            --acc-orange:   #fd7e14;
+            --acc-lime:     #d4e157;
+            --acc-slate:    #BA4E73;
+            --acc-blurple:  #6c5ce7; 
+            --acc-orchid:   #e056fd;
+
+            /* --- DIMENSIONS --- */
+            --page-width:       1200px;
+            --chart-h-std:      300px; 
+            --chart-h-exp:      500px; 
+            --chart-h-dist:     400px; 
+            --chart-h-dist-exp: 580px; 
+        }
+
+        /* --- THEMES --- */
+        [data-theme="light"] {
+            --page-bg:      linear-gradient(120deg, #f5f7fa 0%, #c3cfe2 100%);
+            --text-main:    #333333;
+            --text-bright:  #111111;
+            --text-muted:   #555555;
+            --bg-card:      rgba(248, 250, 252, 0.85); 
+            --border-color: #bdc3c7;
+            --chart-grid:   #d0d6db;
+            --chart-text:   #444444;
+            --scroll-track: #d0d6db;
+            --scroll-thumb: #5a7d9a; 
+            --btn-bg:       #ffffff;
+            
+            /* -- Accent Colors (Darker for visibility on white) -- */
+            --acc-green:    #1e7e34;
+            --acc-blue:     #2c5985;
+            --acc-vibrant:  #2c5985;
+            --acc-yellow:   #d35400;
+            --acc-red:      #c0392b;
+            --acc-purple:   #8e44ad;
+            --acc-pink:     #c2185b;
+                              
+            --acc-teal:     #157347; 
+            --acc-indigo:   #520dc2;
+            --acc-cyan:     #0c8599;
+            --acc-orange:   #cf620b;
+            --acc-lime:     #827717;
+            --acc-slate:    #CC557F;        
+            /* --acc-slate: #455a64; */
+            --acc-blurple:  #4834d4; 
+            --acc-orchid:   #be2edd;
+        }
+
+        [data-theme="contrast"] {
+            --page-bg:      #000000;
+            --text-main:    #ffffff;
+            --text-bright:  #ffffff;
+            --text-muted:   #dddddd;
+            --bg-card:      #000000;
+            --border-color: #ffffff;
+            --chart-grid:   #333333;
+            --chart-text:   #ffffff;
+            --scroll-track: #333333;
+            --scroll-thumb: #ffff00;
+            --btn-bg:       #000000;
+            
+            /* -- Accent Colors (Max brightness for black background) -- */
+            --acc-green:    #00ff00;
+            --acc-blue:     #00ffff;
+            --acc-vibrant:  #00ffff;
+            --acc-yellow:   #ffff00;
+            --acc-red:      #ff0000;
+            --acc-purple:   #ff00ff;
+            --acc-pink:     #ff00ff;
+                              
+            --acc-teal:     #00ffcc;
+            --acc-indigo:   #bb99ff;
+            --acc-cyan:     #00ffff;
+            --acc-orange:   #ff9900;
+            --acc-lime:     #ccff00;
+            --acc-slate:    #ffffff;
+            --acc-blurple:  #5f27cd; 
+            --acc-orchid:   #ff00cc; 
+        }
+
+        /* --- LAYOUT & TYPOGRAPHY --- */
+        body {
+            background: var(--page-bg);
+            background-attachment: fixed;
+            background-size: cover;
+            min-height: 100vh;
+            color: var(--text-main);
+            padding-top: 15px;
+            padding-bottom: 30px;
+            font-family: 'Source Sans Pro', 'Segoe UI', Helvetica, Arial, sans-serif;
+            font-size: 0.9rem;
+            transition: color 0.3s, background 0.3s;
+        }
+        .container { max-width: var(--page-width) !important; }
+
+        /* --- CARDS --- */
+        .card {
+            background-color: var(--bg-card);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+            border: none;
+            border-top: 3px solid var(--border-color);
+            margin-bottom: 15px;
+            border-radius: 4px;
+            transition: background-color 0.3s ease, border-color 0.3s;
+        }
+        [data-theme="contrast"] .card { border: 1px solid #fff; border-top-width: 3px; }
+
+        .card-header {
+            background-color: rgba(128,128,128,0.05);
+            border-bottom: 1px solid var(--border-color);
+            font-weight: 600;
+            color: var(--text-bright);
+            font-size: 1rem;
+            letter-spacing: 0.5px;
+            padding: 4px 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            min-height: 35px;
+            position: relative;
+        }
+
+        .header-title {
+            position: absolute; left: 50%; transform: translateX(-50%);
+            text-transform: uppercase; font-size: 0.8rem; letter-spacing: 1px;
+            color: var(--text-muted); font-weight: 600; white-space: nowrap; pointer-events: none;
+        }
+
+        /* --- CHART WRAPPERS & SCROLL --- */
+        .card-content-wrapper { transition: max-height 0.3s ease-out, opacity 0.3s ease-out; overflow: hidden; display: block; }
+        .card-content-wrapper.collapsed { display: none; }
+
+        .chart-scroll-window {
+            width: 100%; overflow-x: auto; overflow-y: hidden; padding-bottom: 12px;
+            scrollbar-width: auto; scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+        }
+        .chart-scroll-window::-webkit-scrollbar { height: 16px; display: block; background: var(--scroll-track); }
+        .chart-scroll-window::-webkit-scrollbar-track { background-color: var(--scroll-track); border-radius: 0; border-top: 1px solid var(--border-color); }
+        .chart-scroll-window::-webkit-scrollbar-thumb { background-color: var(--scroll-thumb); border-radius: 8px; border: 4px solid var(--scroll-track); min-width: 50px; }
+        .chart-scroll-window::-webkit-scrollbar-thumb:hover { filter: brightness(1.2); }
+
+        .chart-container, .chart-container-scrollable { 
+            height: var(--chart-h-std); 
+            position: relative; 
+            width: 100%; 
+            transition: height 0.3s ease, width 0.3s ease; 
+        }
+        .chart-expanded { height: var(--chart-h-exp) !important; }
+        #dist-chart-container:not(.chart-expanded) { height: var(--chart-h-dist); }
+        #dist-chart-container.chart-expanded { height: var(--chart-h-dist-exp) !important; }
+
+        .chart-card-padding { padding: 15px !important; margin-bottom: 15px !important; }
+
+        /* --- LEGEND --- */
+        .external-legend-container {
+            display: flex; justify-content: center; flex-wrap: wrap; padding: 10px 0; gap: 15px;
+            background: rgba(128,128,128,0.05); border-bottom: 1px solid var(--border-color);
+            position: sticky; top: 0; z-index: 5;
+        }
+        .legend-item { display: flex; align-items: center; cursor: pointer; font-size: 0.85rem; color: var(--text-muted); user-select: none; transition: opacity 0.2s; }
+        .legend-item:hover { color: var(--text-bright); }
+        .legend-box { width: 14px; height: 14px; margin-right: 6px; border-radius: 3px; border: 2px solid transparent; }
+        .legend-item.hidden .legend-box { background-color: transparent !important; }
+        .legend-item.hidden span { opacity: 0.6; }
+
+        /* --- METRIC ROWS --- */
+        .card-body { padding: 0; }
+        .card-body-inner { padding: 5px 15px; }
+        .stat-row { display: flex; justify-content: space-between; align-items: center; padding: 2px 0; border-bottom: 1px solid rgba(128,128,128,0.1); min-height: 24px; }
+        .stat-row:last-child { border-bottom: none; }
+        .stat-label { color: var(--text-main); font-weight: 400; flex-grow: 1; font-size: 0.95rem; }
+        .stat-data-container { display: flex; align-items: center; justify-content: flex-end; width: 200px; }
+        .stat-value { font-weight: 700; color: var(--text-bright); font-variant-numeric: tabular-nums; font-size: 1rem; text-align: right; }
+        .mem-value { min-width: 140px; }
+        .badge-sub { font-size: 0.8em; color: var(--text-muted); width: 85px; text-align: right; margin-left: 5px; font-weight: normal; }
+        
+        /* --- PROGRESS BARS --- */
+        .progress { background-color: rgba(128,128,128,0.15); margin-top: 4px; margin-bottom: 4px; }
+        .progress-micro { height: 5px; border-radius: 4px; }
+
+        /* --- UTILS --- */
+        .bg-secondary { background-color: #343a40 !important; color: #fff; }
+        [data-theme="light"] .bg-secondary { background-color: #6c757d !important; }
+        .bg-primary { background-color: var(--acc-blue) !important; }
+        .bg-success { background-color: var(--acc-green) !important; }
+        .bg-danger { background-color: var(--acc-red) !important; }
+
+        [data-theme="contrast"] .btn-filter.active, 
+        [data-theme="contrast"] .badge.bg-primary,
+        [data-theme="contrast"] .badge.bg-success {
+            color: #000000 !important;
+            font-weight: 800;
+        }
+
+        h3 { color: var(--text-bright); font-weight: 300; margin-bottom: 0; font-size: 1.6rem; }
+        hr { border-top-color: var(--border-color); opacity: 0.5; margin: 0.6rem 0; }
+        #refreshTimer { font-family: monospace; opacity: 0.7; font-size: 0.85em; margin-right: 10px; color: var(--text-main); }
+        .header-logo-svg { height: 36px; width: auto; margin-right: 12px; vertical-align: middle; filter: drop-shadow(0px 2px 3px rgba(0,0,0,0.3)); }
+        .header-wrapper { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; padding-top: 0; }
+        .card-profile-footer { text-align: center; padding: 12px 0; background: rgba(128,128,128,0.05); border-top: 1px solid var(--border-color); font-size: 0.9rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 2px; }
+        .footer-val { color: var(--acc-blue); font-weight: 700; margin: 0 5px; }
+
+        /* --- FOOTER & TIPS --- */
+        .dashboard-tip { background-color: rgba(60, 141, 188, 0.1); color: var(--text-muted); padding: 8px 12px; margin-top: 20px; margin-bottom: 15px; border-radius: 4px; font-size: 0.85rem; text-align: center; border: 1px solid transparent; }
+        [data-theme="light"] .dashboard-tip { background-color: #e3f2fd; color: #004085; border-color: #b8daff; }
+        [data-theme="contrast"] .dashboard-tip { border: 1px solid #fff; color: #fff; }
+        .dashboard-tip a { color: var(--text-bright); text-decoration: none; border-bottom: 1px solid rgba(128,128,128,0.3); }
+        .dashboard-tip a:hover { color: var(--acc-vibrant); border-bottom-color: var(--acc-vibrant); }
+        
+        .version-footer { display: flex; justify-content: center; align-items: center; gap: 30px; padding-top: 15px; border-top: 1px solid var(--border-color); font-size: 0.8rem; color: var(--text-muted); }
+        .v-item { display: flex; align-items: center; }
+        .v-label { text-transform: uppercase; letter-spacing: 0.5px; margin-right: 6px; font-weight: 400; opacity: 0.7; }
+        .v-num { color: var(--acc-vibrant); font-weight: 700; font-family: monospace; }
+        .v-sep { width: 4px; height: 4px; background: var(--border-color); border-radius: 50%; }
+
+        /* --- CONTROLS --- */
+        .header-controls { display: flex; align-items: center; gap: 6px; z-index: 2; }
+        .btn-filter, .btn-icon, .form-select-sm { 
+            background: var(--btn-bg); border: 1px solid var(--border-color); color: var(--text-muted); 
+            padding: 2px 10px; font-size: 0.75rem; border-radius: 3px; transition: all 0.2s; cursor: pointer; text-align: center; 
+        }
+        .btn-icon { padding: 2px 8px; font-size: 0.9rem; font-weight: bold; min-width: 28px; }
+        .btn-filter:hover, .btn-icon:hover { background: rgba(128,128,128,0.2); color: var(--text-bright); }
+        .btn-filter.active, .btn-icon.active { background: var(--acc-blue); border-color: var(--acc-blue); color: #fff; }
+        .btn-min { margin-left: 8px; }
+        
+        #themeSelector { height: 24px; padding: 0 5px; font-size: 0.75rem; background: var(--btn-bg); color: var(--text-main); border: 1px solid var(--border-color); margin-left: 10px; }
+        .custom-range-inputs { display: none; align-items: center; gap: 5px; margin-left: 5px; }
+        .custom-range-inputs.show { display: flex; }
+        .date-input { background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-main); padding: 1px 5px; border-radius: 3px; font-size: 0.75rem; }
+        ::-webkit-calendar-picker-indicator { filter: invert(1); opacity: 0.6; cursor: pointer; transform: scale(0.8); }
+        [data-theme="light"] ::-webkit-calendar-picker-indicator { filter: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header-wrapper">
+        <div class="d-flex align-items-center">
+            <svg class="header-logo-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+                <rect x="10" y="50" width="18" height="50" rx="2" fill="#3c8dbc"/>
+                <rect x="32" y="30" width="18" height="70" rx="2" fill="#00a65a"/>
+                <rect x="54" y="45" width="18" height="55" rx="2" fill="#f39c12"/>
+                <rect x="76" y="70" width="18" height="30" rx="2" fill="#dd4b39"/>
+                <path d="M41 30 Q30 10 20 25 Q30 35 41 30 Z" fill="#00a65a"/>
+                <path d="M41 30 Q52 10 62 25 Q52 35 41 30 Z" fill="#00a65a"/>
+            </svg>
+            <h3 id="main-title">Pi-hole Latency Stats</h3>
+        </div>
+        <div class="d-flex align-items-center flex-column align-items-start">
+            <small class="text-muted" id="header_date">Loading...</small>
+        </div>
+        <div class="d-flex align-items-center">
+            <span id="refreshTimer">Auto-refresh in 60s</span>
+            <span class="badge bg-secondary ms-2" id="time_period" style="margin-left: 8px;">--</span>
+            <span class="badge bg-primary ms-1" id="query_mode" style="margin-left: 4px;">--</span>
+            <select id="themeSelector" onchange="applyTheme(this.value)">
+                <option value="dark">Dark Theme</option>
+                <option value="light">Light Theme</option>
+                <option value="contrast">High Contrast</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-6">
+            <div class="card h-100" style="border-top-color: var(--acc-blue); overflow: hidden;">
+                <div class="card-header">Pi-hole Performance</div>
+                <div class="card-body card-body-inner">
+                    <div class="stat-row"><span class="stat-label">Total Queries</span><div class="stat-data-container"><span class="stat-value" id="p_total">--</span><span class="badge-sub"></span></div></div>
+                    <div class="stat-row"><span class="stat-label">Unsuccessful</span><div class="stat-data-container"><span class="stat-value" id="p_invalid">--</span><span class="badge-sub" id="p_invalid_pct"></span></div></div>
+                    <div class="stat-row"><span class="stat-label">Total Valid</span><div class="stat-data-container"><span class="stat-value" id="p_valid">--</span><span class="badge-sub"></span></div></div>
+                    
+                    <div class="stat-row"><span class="stat-label">Blocked / Ignored</span><div class="stat-data-container"><span class="stat-value" id="p_blocked">--</span><span class="badge-sub" id="p_blocked_pct"></span></div></div>
+                    
+                    <div class="stat-row"><span class="stat-label">Analyzed</span><div class="stat-data-container"><span class="stat-value" id="p_analyzed">--</span><span class="badge-sub" id="p_analyzed_pct"></span></div></div>
+                    <div class="row text-center mt-3 pt-2 border-top border-secondary" style="margin-left: -15px; margin-right: -15px; background: rgba(128,128,128,0.05); border-color: var(--border-color) !important;">
+                        <div class="col-3 border-end border-secondary py-2" style="border-color: var(--border-color) !important;">
+                            <div class="small mb-1" style="color: var(--text-muted); font-size:0.75rem; letter-spacing: 1px; font-weight: 600;">AVERAGE</div>
+                            <div class="h4 mb-0" style="color: var(--acc-vibrant); font-weight: 700;" id="p_avg">--</div>
+                        </div>
+                        <div class="col-3 border-end border-secondary py-2" style="border-color: var(--border-color) !important;">
+                            <div class="small mb-1" style="color: var(--text-muted); font-size:0.75rem; letter-spacing: 1px; font-weight: 600;">STD DEV</div>
+                            <div class="h4 mb-0" style="color: var(--acc-red); font-weight: 700;" id="p_std">--</div>
+                        </div>
+                        <div class="col-3 border-end border-secondary py-2" style="border-color: var(--border-color) !important;">
+                            <div class="small mb-1" style="color: var(--text-muted); font-size:0.75rem; letter-spacing: 1px; font-weight: 600;">MEDIAN</div>
+                            <div class="h4 mb-0" style="color: var(--acc-green); font-weight: 700;" id="p_med">--</div>
+                        </div>
+                        <div class="col-3 py-2">
+                            <div class="small mb-1" style="color: var(--text-muted); font-size:0.75rem; letter-spacing: 1px; font-weight: 600;">95th %</div>
+                            <div class="h4 mb-0" style="color: var(--acc-yellow); font-weight: 700;" id="p_95">--</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-profile-footer">Profile : <span class="footer-val" id="profile-indicator">DEFAULT</span></div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="card h-100" style="border-top-color: var(--acc-green); overflow: hidden;">
+                <div class="card-header"><span>Unbound Performance</span><span id="u_status_badge" class="badge bg-secondary">Checking...</span></div>
+                <div class="card-body card-body-inner">
+                    <div class="stat-row"><span class="stat-label">Total Queries</span><div class="stat-data-container"><span class="stat-value" id="u_total">--</span><span class="badge-sub"></span></div></div>
+                    <div class="stat-row"><span class="stat-label">Cache Hits</span><div class="stat-data-container"><span class="stat-value" id="u_hits">--</span><span class="badge-sub" id="u_hit_pct"></span></div></div>
+                    <div class="stat-row"><span class="stat-label">Cache Misses</span><div class="stat-data-container"><span class="stat-value" id="u_miss">--</span><span class="badge-sub" id="u_miss_pct"></span></div></div>
+                    <div class="stat-row"><span class="stat-label">Prefetch Jobs</span><div class="stat-data-container"><span class="stat-value" id="u_pre">--</span><span class="badge-sub" id="u_pre_pct"></span></div></div>
+                    <hr>
+                    <div class="row">
+                        <div class="col-12"><div class="d-flex justify-content-between align-items-center mb-1"><span class="stat-label">Msg Cache</span><span class="stat-value mem-value" id="mem_msg_txt">-- / --</span></div><div class="progress progress-micro mb-2"><div class="progress-bar" id="mem_msg_bar" style="width: 0%; background-color: var(--acc-green);"></div></div></div>
+                        <div class="col-12"><div class="d-flex justify-content-between align-items-center mb-1"><span class="stat-label">RRset Cache</span><span class="stat-value mem-value" id="mem_rr_txt">-- / --</span></div><div class="progress progress-micro"><div class="progress-bar" id="mem_rr_bar" style="width: 0%; background-color: var(--acc-pink);"></div></div></div>
+                    </div>
+                </div>
+                <div class="card-profile-footer">Messages : <span class="footer-val" id="ucc_msg">--</span><span class="mx-2 opacity-25">|</span>RRsets : <span class="footer-val" id="ucc_rr">--</span></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-3">
+        <div class="col-12">
+            <div class="card chart-card-padding" style="border-top-color: var(--acc-yellow);">
+                <div class="card-header border-0 bg-transparent p-0 mb-1 d-flex justify-content-between align-items-center">
+                    <div class="header-controls">
+                        <button class="btn-filter f-dist f-12h active" onclick="updateDistTime('12h')">12H</button>
+                        <button class="btn-filter f-dist f-24h" onclick="updateDistTime('24h')">24H</button>
+                        <button class="btn-filter f-dist f-7d" onclick="updateDistTime('7d')">7D</button>
+                        <button class="btn-filter f-dist f-30d" onclick="updateDistTime('30d')">30D</button>
+                        <button class="btn-filter f-dist f-all" onclick="updateDistTime('all')">All Time</button>
+                    </div>
+                    <div class="header-title">LATENCY DISTRIBUTION</div>
+                    <div class="header-controls">
+                        <button class="btn-icon active" id="dist-log-btn" title="Toggle Log Scale" onclick="toggleLog('dist')">㏒</button>
+                        <button class="btn-icon btn-min" onclick="toggleHeight('dist-chart-container', this)">&#8597;</button>
+                        <button class="btn-icon btn-min" onclick="toggleCollapse('dist-chart-content', this)">&#8722;</button>
+                    </div>
+                </div>
+                <div id="dist-chart-content" class="card-content-wrapper">
+                    <div class="chart-container" id="dist-chart-container"><canvas id="latencyChart"></canvas></div>
+                </div>
+            </div>
+        </div>
+    </div>
+	
+    <div class="row mt-3">
+        <div class="col-12">
+            <div class="card chart-card-padding" style="border-top-color: var(--acc-purple);">
+                <div class="card-header border-0 bg-transparent p-0 mb-3 d-flex justify-content-between align-items-center">
+                    <div class="header-controls">
+                        <button class="btn-filter f-lat f-12h active" onclick="updateLatencyTime('12h')">12H</button>
+                        <button class="btn-filter f-lat f-24h" onclick="updateLatencyTime('24h')">24H</button>
+                        <button class="btn-filter f-lat f-7d" onclick="updateLatencyTime('7d')">7D</button>
+                        <button class="btn-filter f-lat f-30d" onclick="updateLatencyTime('30d')">30D</button>
+                        <button class="btn-filter f-lat f-cust" onclick="updateLatencyTime('cust')">Custom</button>
+                    </div>
+                    <div class="header-title">Latency History (ms)</div>
+                    <div class="header-controls">
+                        <button class="btn-icon" id="lat-log-btn" title="Toggle Log Scale" onclick="toggleLog('lat')">㏒</button>
+                        <button class="btn-icon" id="lat-type-btn" title="Toggle Bar/Line" onclick="toggleChartType('lat')">📈</button>
+                        <button class="btn-icon" id="lat-scroll-btn" title="Toggle Scroll" onclick="toggleScroll('lat')">↔</button>
+                        <button class="btn-icon btn-min" onclick="toggleHeight('latency-chart-container', this)">&#8597;</button>
+                        <button class="btn-icon btn-min" onclick="toggleCollapse('lat-chart-content', this)">&#8722;</button>
+                    </div>
+                </div>
+                <div class="custom-range-inputs mb-2" id="lat-custom-inputs" style="display:none; padding-left: 5px;">
+                    <input type="datetime-local" class="date-input" id="lat-start"><span class="text-muted">-</span><input type="datetime-local" class="date-input" id="lat-end">
+				<button class="btn-filter" style="border-color: var(--acc-green); color: var(--acc-green)" onclick="applyLatencyCustom()">Go</button>
+                </div>
+                <div id="lat-chart-content" class="card-content-wrapper">
+                    <div id="latency-legend" class="external-legend-container"></div>
+                    <div class="chart-scroll-window" id="latency-scroll-window">
+                        <div class="chart-container-scrollable" id="latency-chart-container">
+					<canvas id="historyChart"></canvas></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<div class="row mt-3">
+        <div class="col-12">
+            <div class="card chart-card-padding" style="border-top-color: var(--acc-red);">
+                <div class="card-header border-0 bg-transparent p-0 mb-3 d-flex justify-content-between align-items-center">
+                    <div class="header-controls">
+                        <button class="btn-filter f-sd f-12h active" onclick="updateSdTime('12h')">12H</button>
+                        <button class="btn-filter f-sd f-24h" onclick="updateSdTime('24h')">24H</button>
+                        <button class="btn-filter f-sd f-7d" onclick="updateSdTime('7d')">7D</button>
+                        <button class="btn-filter f-sd f-30d" onclick="updateSdTime('30d')">30D</button>
+                        <button class="btn-filter f-sd f-cust" onclick="updateSdTime('cust')">Custom</button>
+                    </div>
+                    <div class="header-title">STANDARD DEVIATION (ms)</div>
+                    <div class="header-controls">
+                        <button class="btn-icon" id="sd-log-btn" title="Toggle Log Scale" onclick="toggleLog('sd')">㏒</button>
+                        <button class="btn-icon" id="sd-type-btn" title="Toggle Bar/Line" onclick="toggleChartType('sd')">📈</button>
+                        <button class="btn-icon" id="sd-scroll-btn" title="Toggle Scroll" onclick="toggleScroll('sd')">↔</button>
+                        <button class="btn-icon btn-min" onclick="toggleHeight('sd-chart-container', this)">&#8597;</button>
+                        <button class="btn-icon btn-min" onclick="toggleCollapse('sd-chart-content', this)">&#8722;</button>
+                    </div>
+                </div>
+                <div class="custom-range-inputs mb-2" id="sd-custom-inputs" style="display:none; padding-left: 5px;">
+                    <input type="datetime-local" class="date-input" id="sd-start"><span class="text-muted">-</span><input type="datetime-local" class="date-input" id="sd-end">
+                    <button class="btn-filter" style="border-color: var(--acc-green); color: var(--acc-green)" onclick="applySdCustom()">Go</button>
+                </div>
+                <div id="sd-chart-content" class="card-content-wrapper">
+                    <div id="sd-legend" class="external-legend-container"></div>
+                    <div class="chart-scroll-window" id="sd-scroll-window">
+                        <div class="chart-container-scrollable" id="sd-chart-container">
+                            <canvas id="sdChart"></canvas> </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-3">
+        <div class="col-12">
+            <div class="card chart-card-padding" style="border-top-color: var(--acc-vibrant);">
+                <div class="card-header border-0 bg-transparent p-0 mb-3 d-flex justify-content-between align-items-center">
+                    <div class="header-controls">
+                        <button class="btn-filter f-eff f-12h active" onclick="updateEffTime('12h')">12H</button>
+                        <button class="btn-filter f-eff f-24h" onclick="updateEffTime('24h')">24H</button>
+                        <button class="btn-filter f-eff f-7d" onclick="updateEffTime('7d')">7D</button>
+                        <button class="btn-filter f-eff f-30d" onclick="updateEffTime('30d')">30D</button>
+                        <button class="btn-filter f-eff f-cust" onclick="updateEffTime('cust')">Custom</button>
+                    </div>
+                    <div class="header-title">UNBOUND CACHE HIT EFFICIENCY</div>
+                    <div class="header-controls">
+                        <button class="btn-icon" id="eff-log-btn" title="Toggle Log Scale" onclick="toggleLog('eff')">㏒</button>
+                        <button class="btn-icon" id="eff-type-btn" title="Toggle Bar/Line" onclick="toggleChartType('eff')">📈</button>
+                        <button class="btn-icon" id="eff-scroll-btn" title="Toggle Scroll" onclick="toggleScroll('eff')">↔</button>
+                        <button class="btn-icon btn-min" onclick="toggleHeight('efficiency-chart-container', this)">&#8597;</button>
+                        <button class="btn-icon btn-min" onclick="toggleCollapse('eff-chart-content', this)">&#8722;</button>
+                    </div>
+                </div>
+                <div class="custom-range-inputs mb-2" id="eff-custom-inputs" style="display:none; padding-left: 5px;">
+                    <input type="datetime-local" class="date-input" id="eff-start"><span class="text-muted">-</span><input type="datetime-local" class="date-input" id="eff-end">
+				<button class="btn-filter" style="border-color: var(--acc-green); color: var(--acc-green)" onclick="applyEffCustom()">Go</button>
+                </div>
+                <div id="eff-chart-content" class="card-content-wrapper">
+                    <div id="efficiency-legend" class="external-legend-container"></div>
+                    <div class="chart-scroll-window" id="efficiency-scroll-window">
+                        <div class="chart-container-scrollable" id="efficiency-chart-container"><canvas id="efficiencyChart"></canvas></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-3">
+        <div class="col-12">
+            <div class="card chart-card-padding" style="border-top-color: var(--acc-green);">
+                <div class="card-header border-0 bg-transparent p-0 mb-3 d-flex justify-content-between align-items-center">
+                    <div class="header-controls">
+                        <button class="btn-filter f-mem f-12h active" onclick="updateMemTime('12h')">12H</button>
+                        <button class="btn-filter f-mem f-24h" onclick="updateMemTime('24h')">24H</button>
+                        <button class="btn-filter f-mem f-7d" onclick="updateMemTime('7d')">7D</button>
+                        <button class="btn-filter f-mem f-30d" onclick="updateMemTime('30d')">30D</button>
+                        <button class="btn-filter f-mem f-cust" onclick="updateMemTime('cust')">Custom</button>
+                    </div>
+                    <div class="header-title">Unbound Cache Memory</div>
+                    <div class="header-controls">
+                        <button class="btn-icon" id="mem-log-btn" title="Toggle Log Scale" onclick="toggleLog('mem')">㏒</button>
+                        <button class="btn-icon" id="mem-type-btn" title="Toggle Bar/Line" onclick="toggleChartType('mem')">📈</button>
+                        <button class="btn-icon" id="mem-scroll-btn" title="Toggle Scroll" onclick="toggleScroll('mem')">↔</button>
+                        <button class="btn-icon btn-min" onclick="toggleHeight('memory-chart-container', this)">&#8597;</button>
+                        <button class="btn-icon btn-min" onclick="toggleCollapse('mem-chart-content', this)">&#8722;</button>
+                    </div>
+                </div>
+                <div class="custom-range-inputs mb-2" id="mem-custom-inputs" style="display:none; padding-left: 5px;">
+                    <input type="datetime-local" class="date-input" id="mem-start"><span class="text-muted">-</span><input type="datetime-local" class="date-input" id="mem-end">
+				<button class="btn-filter" style="border-color: var(--acc-green); color: var(--acc-green)" onclick="applyMemCustom()">Go</button>
+                </div>
+                <div id="mem-chart-content" class="card-content-wrapper">
+                    <div id="memory-legend" class="external-legend-container"></div>
+                    <div class="chart-scroll-window" id="memory-scroll-window">
+                        <div class="chart-container-scrollable" id="memory-chart-container"><canvas id="memoryChart"></canvas></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-3">
+        <div class="col-12">
+            <div class="card chart-card-padding" style="border-top-color: var(--acc-pink);">
+                <div class="card-header border-0 bg-transparent p-0 mb-3 d-flex justify-content-between align-items-center">
+                    <div class="header-controls">
+                        <button class="btn-filter f-unb f-12h active" onclick="updateUnboundTime('12h')">12H</button>
+                        <button class="btn-filter f-unb f-24h" onclick="updateUnboundTime('24h')">24H</button>
+                        <button class="btn-filter f-unb f-7d" onclick="updateUnboundTime('7d')">7D</button>
+                        <button class="btn-filter f-unb f-30d" onclick="updateUnboundTime('30d')">30D</button>
+                        <button class="btn-filter f-unb f-cust" onclick="updateUnboundTime('cust')">Custom</button>
+                    </div>
+                    <div class="header-title">Unbound Traffic History</div>
+                    <div class="header-controls">
+                        <button class="btn-icon" id="unb-log-btn" title="Toggle Log Scale" onclick="toggleLog('unb')">㏒</button>
+                        <button class="btn-icon" id="unb-type-btn" title="Toggle Bar/Line" onclick="toggleChartType('unb')">📈</button>
+                        <button class="btn-icon" id="unb-scroll-btn" title="Toggle Scroll" onclick="toggleScroll('unb')">↔</button>
+                        <button class="btn-icon btn-min" onclick="toggleHeight('unbound-chart-container', this)">&#8597;</button>
+                        <button class="btn-icon btn-min" onclick="toggleCollapse('unb-chart-content', this)">&#8722;</button>
+                    </div>
+                </div>
+                <div class="custom-range-inputs mb-2" id="unb-custom-inputs" style="display:none; padding-left: 5px;">
+                    <input type="datetime-local" class="date-input" id="unb-start"><span class="text-muted">-</span><input type="datetime-local" class="date-input" id="unb-end">
+				<button class="btn-filter" style="border-color: var(--acc-green); color: var(--acc-green)" onclick="applyUnboundCustom()">Go</button>
+                </div>
+                <div id="unb-chart-content" class="card-content-wrapper">
+                    <div id="unbound-legend" class="external-legend-container"></div>
+                    <div class="chart-scroll-window" id="unbound-scroll-window">
+                        <div class="chart-container-scrollable" id="unbound-chart-container"><canvas id="unboundChart"></canvas></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="dashboard-tip">💡 Use <b>sudo ./pihole_stats.sh -dash</b> via Cron or <b>Use Cron Maker</b> to build the history graph.<br>See <a href="https://github.com/panoc/pihole-latency-stats" target="_blank">Full Documentation</a>.</div>
+    <div class="version-footer">
+        <div class="v-item">
+            <span class="v-label">Script version:</span>
+            <div>
+                <span class="v-num" id="script-v-num">Loading...</span>
+                <span id="update-notification"></span> 
+            </div>
+        </div>
+        <div class="v-sep"></div>
+        <div class="v-item">
+            <span class="v-label">Dashboard version:</span>
+            <span class="v-num" id="dash-v-num">--</span>
+        </div>
+    </div>
+</div>
+<script>
+// --- CHANGED: Hardcoded version to prevent identity theft by the updater ---
+const currentDashVersion = "v3.6"; 
+let dashVersion = currentDashVersion; // Initialize with hardcoded
+let updateChecked = false;      
+let isFirstLoad = true; // Flag for initial animation
+
+// ==========================================
+// 1. CONFIGURATION & GLOBAL STATE
+// ==========================================
+
+const DIST_LOG_MIN = 1; 
+const LOG_FLOOR_FACTOR = 0.90; 
+let fetchFailCount = 0; // Track consecutive failures
+
+// Store raw data from JSON
+let fullHistoryData = []; 
+let globalData = null; 
+
+// Chart instances
+let barChart = null; 
+let effChart = null;
+let histChart = null; 
+let unboundChart = null;
+let memChart = null;
+let sdChart = null;
+
+// Configuration state for the SD Chart
+let sdConfig = {
+    timeWindow: '12h',   // Default time window
+    isLog: false,        // Logarithmic scale off by default
+    chartType: 'bar',    // Default to Bar chart (easier to see spikes)
+    isScroll: false,     // Scroll mode off by default
+    customStart: null,
+    customEnd: null
+};
+
+// Chart preferences
+let latencyChartType = 'bar'; 
+let unboundChartType = 'bar';
+let effChartType = 'bar';
+let memChartType = 'bar';
+
+let latencyScroll = false;
+let unboundScroll = false;
+let effScroll = false;
+let memScroll = false;
+
+// Scales
+let latLog = false;
+let unbLog = false;
+let memLog = false;
+let effLog = false;
+let distLog = true; 
+
+// Filters
+let latMode = '12h';
+let unbMode = '12h';
+let distMode = '12h';
+let effMode = '12h';
+let memMode = '12h';
+
+let refreshSeconds = 60;
+
+// ==========================================
+// 2. HELPER FUNCTIONS
+// ==========================================
+
+// Cross-browser date parser (Fixes Safari/Mobile NaN issues)
+function safeDate(dateStr) {
+    if (!dateStr) return new Date();
+    return new Date(dateStr.replace(" ", "T"));
+}
+
+function isNewer(remote, current) {
+    const clean = (v) => v.replace(/[^0-9.]/g, '').split('.').map(Number);
+    const r = clean(remote);
+    const c = clean(current);
+    for (let i = 0; i < Math.max(r.length, c.length); i++) {
+        const rv = r[i] || 0;
+        const cv = c[i] || 0;
+        if (rv > cv) return true;
+        if (rv < cv) return false;
+    }
+    return false;
+}
+
+// Update Checker
+async function checkForUpdates(scriptCurrent) {
+    const downloadUrl = "https://panoc.github.io/pihole-latency-stats/";
+    const updateStyle = 'style="color:var(--acc-yellow); font-size:0.8em; display:block; margin-top:4px; font-weight:bold; text-decoration:none;"';
+
+    console.log("Checking for updates... Local Script:", scriptCurrent);
+
+    try {
+        // CHANGED: We only fetch ONE file ('version')
+        const resp = await fetch('version?t=' + new Date().getTime());
+        const remoteText = await resp.text();
+        
+        // Display Current Hardcoded Version
+        setText('dash-v-num', currentDashVersion);
+
+        // Parse: s=3.6.1 and d=4.7.2
+        const sMatch = remoteText.match(/s=([0-9.]+)/);
+        const dMatch = remoteText.match(/d=([0-9.]+)/);
+        
+        const remoteS = sMatch ? sMatch[1] : null;
+        const remoteD = dMatch ? dMatch[1] : null;
+
+        const notifEl = document.getElementById('update-notification');
+        if (notifEl) {
+            let html = "";
+            // Check Script Update
+            if (remoteS && isNewer(remoteS, scriptCurrent)) {
+                console.log("New script version found:", remoteS);
+                html += `<a href="${downloadUrl}" target="_blank" ${updateStyle}>New Script (${remoteS}) ➜</a>`;
+            }
+            // Check Dashboard Update
+            if (remoteD && isNewer(remoteD, currentDashVersion)) {
+                console.log("New dash version found:", remoteD);
+                html += `<a href="${downloadUrl}" target="_blank" ${updateStyle}>New Dash (${remoteD}) ➜</a>`;
+            }
+            notifEl.innerHTML = html;
+        }
+
+    } catch (e) { 
+        console.warn("Update check skipped (version file missing?):", e); 
+    }
+}
+
+function setText(id, txt) {
+    const el = document.getElementById(id);
+    if(el) el.innerText = txt;
+}
+
+function formatK(value) {
+    if (value === DIST_LOG_MIN && distLog) return '0'; 
+    if (value === 0.1) return '0';
+    if (value === 0) return '0';
+    if (value >= 1000000) return (value / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (value >= 1000) return (value / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+    return value;
+}
+
+function calcPct(part, total) {
+    if (!total || total == 0) return "(0.0%)";
+    return "(" + ((part / total) * 100).toFixed(1) + "%)";
+}
+
+// Helper to grab the actual Hex code from a CSS variable
+function getCssVar(name) {
+    // FALLBACK: If css var is missing, return a safe color (black/grey) to prevent chart crashes
+    const val = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return val || "#777777";
+}
+
+function getThemePalette() {
+    // This function now automatically adapts to the active theme 
+																	
+        return { 
+        avg:       getCssVar('--acc-blurple'),
+        med:       getCssVar('--acc-blurple'),
+        p95:       getCssVar('--acc-orange'),
+        msg:       getCssVar('--acc-cyan'),
+        rr:        getCssVar('--acc-lime'),
+        mem_msg:   getCssVar('--acc-green'),
+        mem_rr:    getCssVar('--acc-orchid'),
+        diff_hit:  getCssVar('--acc-teal'),
+        diff_miss: getCssVar('--acc-red'),
+	sd_val:    getCssVar('--acc-slate'),    // Standard Deviation (Red)
+        sd_avg:    getCssVar('--acc-blue'),    // SD Average (Teal - Distinct from Latency)
+        
+        // You can now access your new colors here if you need to assign them to specific charts:
+        teal:      getCssVar('--acc-teal'),
+        indigo:    getCssVar('--acc-indigo'),
+        cyan:      getCssVar('--acc-cyan'),
+        orange:    getCssVar('--acc-orange'),
+        lime:      getCssVar('--acc-lime'),
+        slate:     getCssVar('--acc-slate'),
+	   blurple:   getCssVar('--acc-blurple'),
+        orchid:    getCssVar('--acc-orchid')
+    };
+}
+
+function generateVibrantColors(count) {
+    const theme = localStorage.getItem('phls_theme') || 'dark';
+    const colors = []; const borders = [];
+    let sat = 75; let light = 60; let alpha = 1; 
+    if (theme === 'light') { sat = 70; light = 40; alpha = 1; } 
+    if (theme === 'contrast') { sat = 100; light = 50; alpha = 1; }
+    for (let i = 0; i < count; i++) {
+        const h = (Math.floor((360 / count) * i) + 200) % 360;
+        colors.push(`hsla(${h}, ${sat}%, ${light}%, ${alpha})`);
+        borders.push(`hsla(${h}, ${sat}%, ${light}%, 1)`);
+    }
+    return { bg: colors, border: borders };
+}
+
+// Apply saved theme
+const storedTheme = localStorage.getItem('phls_theme') || 'dark';
+document.getElementById('themeSelector').value = storedTheme;
+applyTheme(storedTheme);
+
+function applyTheme(theme) {
+    console.log("Applying theme:", theme);
+    if (theme === 'dark') { document.documentElement.removeAttribute('data-theme'); } 
+    else { document.documentElement.setAttribute('data-theme', theme); }
+    
+    localStorage.setItem('phls_theme', theme);
+    
+    const styles = getComputedStyle(document.documentElement);
+    const gridColor = styles.getPropertyValue('--chart-grid').trim();
+    const textColor = styles.getPropertyValue('--chart-text').trim();
+    
+    const updateChartColors = (chart) => {
+        if (!chart) return;
+        if(chart.options.scales.x) { chart.options.scales.x.grid.color = gridColor; chart.options.scales.x.ticks.color = textColor; }
+        if (chart.options.scales.y) { chart.options.scales.y.grid.color = gridColor; chart.options.scales.y.ticks.color = textColor; }
+        chart.update();
+    };
+
+    updateChartColors(histChart); 
+    updateChartColors(unboundChart); 
+    updateChartColors(barChart); 
+    updateChartColors(effChart); 
+    updateChartColors(memChart);
+    updateChartColors(sdChart); // Added SD Chart here
+
+    if(globalData) renderSnapshotCharts(globalData);
+    
+    // Fixed the double-if syntax error here
+    if(fullHistoryData.length > 0) { 
+        renderLatencyHistory(); 
+        renderUnboundHistory(); 
+        renderUnboundMemoryHistory(); 
+        renderEfficiencyChart(); 
+        renderSdHistory(); 
+    }
+}
+
+// ==========================================
+// 3. INTERACTION & FILTER LOGIC
+// ==========================================
+
+function toggleCollapse(id, btn) {
+    const el = document.getElementById(id);
+    if (el.classList.contains('collapsed')) { el.classList.remove('collapsed'); btn.innerHTML = '&#8722;'; } else { el.classList.add('collapsed'); btn.innerHTML = '+'; }
+}
+
+function toggleHeight(id, btn) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.classList.contains('chart-expanded')) { el.classList.remove('chart-expanded'); btn.classList.remove('active'); } else { el.classList.add('chart-expanded'); btn.classList.add('active'); }
+}
+
+function toggleLog(which) {
+    const btn = document.getElementById(which + '-log-btn');
+    if (btn) btn.classList.toggle('active');
+
+    if (which === 'lat') { latLog = !latLog; renderLatencyHistory(); } 
+    else if (which === 'unb') { unbLog = !unbLog; renderUnboundHistory(); } 
+    else if (which === 'eff') { effLog = !effLog; renderEfficiencyChart(); } 
+    else if (which === 'mem') { memLog = !memLog; renderUnboundMemoryHistory(); } 
+    else if (which === 'dist') { distLog = !distLog; if(globalData) renderSnapshotCharts(globalData); }
+    // ADDED SD CASE
+    else if (which === 'sd') { sdConfig.isLog = !sdConfig.isLog; renderSdHistory(); }
+}
+
+function toggleChartType(which) {
+    const btn = document.getElementById(which + '-type-btn');
+    
+    if (which === 'lat') { latencyChartType = (latencyChartType === 'bar') ? 'line' : 'bar'; if(btn) btn.innerText = (latencyChartType === 'bar') ? '📈' : '📊'; renderLatencyHistory(); } 
+    else if (which === 'unb') { unboundChartType = (unboundChartType === 'bar') ? 'line' : 'bar'; if(btn) btn.innerText = (unboundChartType === 'bar') ? '📈' : '📊'; renderUnboundHistory(); } 
+    else if (which === 'eff') { effChartType = (effChartType === 'bar') ? 'line' : 'bar'; if(btn) btn.innerText = (effChartType === 'bar') ? '📈' : '📊'; renderEfficiencyChart(); } 
+    else if (which === 'mem') { memChartType = (memChartType === 'bar') ? 'line' : 'bar'; if(btn) btn.innerText = (memChartType === 'bar') ? '📈' : '📊'; renderUnboundMemoryHistory(); }
+    // ADDED SD CASE
+    else if (which === 'sd') { 
+        sdConfig.chartType = (sdConfig.chartType === 'bar') ? 'line' : 'bar'; 
+        if(btn) btn.innerText = (sdConfig.chartType === 'bar') ? '📈' : '📊'; 
+        renderSdHistory(); 
+    }
+}
+
+function toggleScroll(which) {
+    const btn = document.getElementById(which + '-scroll-btn');
+    if (btn) btn.classList.toggle('active');
+
+    if (which === 'lat') { latencyScroll = !latencyScroll; renderLatencyHistory(); } 
+    else if (which === 'unb') { unboundScroll = !unboundScroll; renderUnboundHistory(); } 
+    else if (which === 'eff') { effScroll = !effScroll; renderEfficiencyChart(); } 
+    else if (which === 'mem') { memScroll = !memScroll; renderUnboundMemoryHistory(); }
+    // ADDED SD CASE
+    else if (which === 'sd') { sdConfig.isScroll = !sdConfig.isScroll; renderSdHistory(); }
+}
+
+function updateFilterButtons(cls, mode) {
+    document.querySelectorAll('.' + cls).forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.' + cls + '.f-' + mode).forEach(b => b.classList.add('active'));
+}
+
+function toggleCustomInputs(id, mode) {
+    const ci = document.getElementById(id);
+    if(ci) ci.style.display = (mode === 'cust') ? 'flex' : 'none';
+}
+
+function getFilteredData(mode, startInputId, endInputId) {
+    if (!fullHistoryData.length) return [];
+    const safeDate = (dateStr) => new Date(dateStr.replace(" ", "T"));
+    const now = new Date();
+    
+    if (mode === '12h') return fullHistoryData.filter(d => safeDate(d.date) >= new Date(now - 12 * 60 * 60 * 1000));
+    if (mode === '24h') return fullHistoryData.filter(d => safeDate(d.date) >= new Date(now - 24 * 60 * 60 * 1000));
+    if (mode === '7d')  return fullHistoryData.filter(d => safeDate(d.date) >= new Date(now - 7 * 24 * 60 * 60 * 1000));
+    if (mode === '30d') return fullHistoryData.filter(d => safeDate(d.date) >= new Date(now - 30 * 24 * 60 * 60 * 1000));
+    
+    if (mode === 'cust') {
+        const sEl = document.getElementById(startInputId);
+        const eEl = document.getElementById(endInputId);
+        if (sEl && eEl && sEl.value && eEl.value) {
+            const start = new Date(sEl.value); 
+            const end = new Date(eEl.value);
+            return fullHistoryData.filter(d => { 
+                const t = safeDate(d.date); 
+                return t >= start && t <= end; 
+            });
+        }
+    }
+    return fullHistoryData; 
+}
+
+function updateLatencyTime(mode) { latMode = mode; updateFilterButtons('f-lat', mode); toggleCustomInputs('lat-custom-inputs', mode); const d = getFilteredData(latMode, 'lat-start', 'lat-end'); checkAutoScroll('lat', d); renderLatencyHistory(); }
+function applyLatencyCustom() { latMode = 'cust'; renderLatencyHistory(); }
+function updateUnboundTime(mode) { unbMode = mode; updateFilterButtons('f-unb', mode); toggleCustomInputs('unb-custom-inputs', mode); const d = getFilteredData(unbMode, 'unb-start', 'unb-end'); checkAutoScroll('unb', d); renderUnboundHistory(); }
+function applyUnboundCustom() { unbMode = 'cust'; renderUnboundHistory(); }
+function updateMemTime(mode) { memMode = mode; updateFilterButtons('f-mem', mode); toggleCustomInputs('mem-custom-inputs', mode); const d = getFilteredData(memMode, 'mem-start', 'mem-end'); checkAutoScroll('mem', d); renderUnboundMemoryHistory(); }
+function applyMemCustom() { memMode = 'cust'; renderUnboundMemoryHistory(); }
+function updateDistTime(mode) { distMode = mode; updateFilterButtons('f-dist', mode); if(globalData) renderSnapshotCharts(globalData); }
+function updateEffTime(mode) { effMode = mode; updateFilterButtons('f-eff', mode); toggleCustomInputs('eff-custom-inputs', mode); const d = getFilteredData(effMode, 'eff-start', 'eff-end'); checkAutoScroll('eff', d); renderEfficiencyChart(); }
+function applyEffCustom() { effMode = 'cust'; renderEfficiencyChart(); }
+
+// --- LEGEND PLUGINS ---
+
+const htmlLegendPlugin = {
+    id: 'htmlLegend',
+    afterUpdate(chart, args, options) {
+        const ul = document.getElementById(options.containerID);
+        if (!ul) return;
+        while (ul.firstChild) { ul.firstChild.remove(); }
+        const items = chart.options.plugins.legend.labels.generateLabels(chart);
+        items.forEach(item => {
+            const li = document.createElement('div');
+            li.className = `legend-item ${item.hidden ? 'hidden' : ''}`;
+            li.onclick = () => { chart.setDatasetVisibility(item.datasetIndex, !chart.isDatasetVisible(item.datasetIndex)); chart.update(); };
+            const box = document.createElement('div');
+            box.className = 'legend-box';
+            if (!item.hidden) { box.style.backgroundColor = item.fillStyle; box.style.borderColor = item.fillStyle; } 
+            else { box.style.backgroundColor = 'transparent'; box.style.borderColor = item.fillStyle; }
+            const text = document.createElement('span'); text.innerText = item.text;
+            li.appendChild(box); li.appendChild(text); ul.appendChild(li);
+        });
+    }
+};
+
+const htmlLegendSplitPlugin = {
+    id: 'htmlLegendSplit',
+    afterUpdate(chart, args, options) {
+        const ul = document.getElementById(options.containerID);
+        if (!ul) return;
+        while (ul.firstChild) { ul.firstChild.remove(); }
+        
+        const items = chart.options.plugins.legend.labels.generateLabels(chart);
+        // Only generate legends for the first 2 items (Back Layers)
+        const uniqueItems = items.filter(item => item.datasetIndex < 2);
+
+        uniqueItems.forEach(item => {
+            const li = document.createElement('div');
+            li.className = `legend-item ${item.hidden ? 'hidden' : ''}`;
+            li.onclick = () => { 
+                const idx = item.datasetIndex;
+                const isVisible = chart.isDatasetVisible(idx);
+                // Toggle Back Layer
+                chart.setDatasetVisibility(idx, !isVisible);
+                // Toggle Front Layer (Index + 2)
+                const partnerIdx = idx + 2; 
+                if (chart.data.datasets[partnerIdx]) {
+                    chart.setDatasetVisibility(partnerIdx, !isVisible);
+                }
+                chart.update(); 
+            };
+            const box = document.createElement('div');
+            box.className = 'legend-box';
+            if (!item.hidden) { box.style.backgroundColor = item.fillStyle; box.style.borderColor = item.fillStyle; } 
+            else { box.style.backgroundColor = 'transparent'; box.style.borderColor = item.fillStyle; }
+            const text = document.createElement('span'); text.innerText = item.text;
+            li.appendChild(box); li.appendChild(text); ul.appendChild(li);
+        });
+    }
+};
+
+function updateChartScroll(chartId, isScroll, count, chartInstance) {
+    const container = document.getElementById(chartId + '-chart-container');
+    const windowDiv = document.getElementById(chartId + '-scroll-window');
+    const maxSafeWidth = 32000; 
+    
+    if (isScroll && count > 0) {
+        let density = (count > 3000) ? 4 : 9;
+        const calcWidth = Math.max(windowDiv.clientWidth, count * density);
+        const finalWidth = Math.min(calcWidth, maxSafeWidth) + 'px';
+        container.style.width = finalWidth;
+        if(chartInstance) {
+            chartInstance.options.scales.x.ticks.maxTicksLimit = Math.floor(parseInt(finalWidth) / 60); 
+        }
+        setTimeout(() => { windowDiv.scrollLeft = windowDiv.scrollWidth; }, 50);
+    } else {
+        container.style.width = '100%';
+        if(chartInstance) {
+            chartInstance.options.scales.x.ticks.maxTicksLimit = 12;
+        }
+    }
+}
+
+function checkAutoScroll(type, data) {
+    if (!data || data.length < 2) return;
+    const start = new Date(data[0].date).getTime();
+    const end = new Date(data[data.length - 1].date).getTime();
+    const hours = (end - start) / (1000 * 60 * 60);
+    const shouldScroll = hours > 48;
+    
+    // Updated IDs map with SD
+    const ids = { lat: 'lat-scroll-btn', unb: 'unb-scroll-btn', eff: 'eff-scroll-btn', mem: 'mem-scroll-btn', sd: 'sd-scroll-btn' };
+    const btn = document.getElementById(ids[type]);
+    
+    if (type === 'lat') latencyScroll = shouldScroll;
+    else if (type === 'unb') unboundScroll = shouldScroll;
+    else if (type === 'eff') effScroll = shouldScroll;
+    else if (type === 'mem') memScroll = shouldScroll;
+    else if (type === 'sd') sdConfig.isScroll = shouldScroll;
+
+    if (btn) { if (shouldScroll) btn.classList.add('active'); else btn.classList.remove('active'); }
+}
+
+// -------------------------------------------------------------
+// RENDERERS (FIXED: Type Casting & Tooltip Filtering)
+// -------------------------------------------------------------
+
+// -------------------------------------------------------------
+// MODIFIED SNAPSHOT RENDERER (Hides Zero Values)
+// -------------------------------------------------------------
+function renderSnapshotCharts(data) {
+    console.log("Rendering Snapshot Charts");
+    const barCtx = document.getElementById('latencyChart').getContext('2d');
+    const styles = getComputedStyle(document.documentElement);
+    const gridColor = styles.getPropertyValue('--chart-grid').trim();
+    const textColor = styles.getPropertyValue('--chart-text').trim();
+
+    // 1. Select the Data Source based on Time Filter
+    let rawData = [];
+    if (distMode === '12h' && data.tiers_12h) rawData = data.tiers_12h;
+    else if (distMode === '24h' && data.tiers_24h) rawData = data.tiers_24h;
+    else if (distMode === '7d' && data.tiers_7d) rawData = data.tiers_7d;
+    else if (distMode === '30d' && data.tiers_30d) rawData = data.tiers_30d;
+    else if (data.tiers) rawData = data.tiers.map(t => t.count);
+    
+    // Safety check for empty data
+    if (!rawData || rawData.length === 0) rawData = new Array(data.tiers ? data.tiers.length : 9).fill(0);
+
+    // 2. Prepare Base Labels
+    let sourceLabels = [];
+    if (data.tiers) {
+        sourceLabels = data.tiers.map(t => t.label.replace("Tier ", "T"));
+    } else {
+        sourceLabels = rawData.map((_, i) => "T" + (i+1));
+    }
+
+    // 3. FILTER: Remove Zero Values
+    let filteredLabels = [];
+    let filteredRawData = [];
+
+    for (let i = 0; i < rawData.length; i++) {
+        let val = Number(rawData[i]) || 0;
+        if (val > 0) {
+            filteredRawData.push(val);
+            // Ensure we grab the corresponding label for this index
+            filteredLabels.push(sourceLabels[i] || ("T"+(i+1)));
+        }
+    }
+
+    // 4. Generate Colors for the filtered count
+    // This ensures the remaining bars spread their colors nicely
+    const barPalette = generateVibrantColors(filteredLabels.length);
+
+    // 5. Calculate Log Scale Floor based on FILTERED data
+    const nonZeroValues = filteredRawData; 
+    const minVal = nonZeroValues.length > 0 ? Math.min(...nonZeroValues) : 1;
+    let dynamicFloor = minVal * LOG_FLOOR_FACTOR;
+    if (dynamicFloor <= 0) dynamicFloor = 0.1;
+
+    // 6. Create Plot Data
+    const plotData = filteredRawData.map(v => {
+        if (distLog && v < dynamicFloor) return dynamicFloor; 
+        return v;
+    });
+
+    const maxVal = Math.max(...plotData, 0);
+    let logSafetyMax = undefined;
+    if (distLog && maxVal < (dynamicFloor * 10)) logSafetyMax = dynamicFloor * 10;
+    const yType = distLog ? 'logarithmic' : 'linear';
+
+    if (barChart) barChart.destroy();
+    
+    barChart = new Chart(barCtx, {
+        type: 'bar',
+        data: {
+            labels: filteredLabels, // Use the Filtered Labels
+            datasets: [{ 
+                label: 'Queries', 
+                data: plotData,     // Use the Filtered Data
+                backgroundColor: barPalette.bg, 
+                borderColor: barPalette.border, 
+                borderWidth: 1, 
+                borderRadius: 3 
+            }]
+        },
+        plugins: [{
+            id: 'topLabels',
+            afterDatasetsDraw(chart, args, options) {
+                const { ctx } = chart;
+                chart.data.datasets.forEach((dataset, i) => {
+                    const meta = chart.getDatasetMeta(i);
+                    meta.data.forEach((bar, index) => {
+                        // Use filteredRawData to get the correct text value
+                        let value = filteredRawData[index] || 0;
+                        if (value > 0) {
+                            const label = formatK(value);
+                            ctx.fillStyle = textColor; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+                            let yPos = bar.y - 5; if (yPos > chart.chartArea.bottom) yPos = chart.chartArea.bottom - 5;
+                            ctx.fillText(label, bar.x, yPos);
+                        }
+                    });
+                });
+            }
+        }],
+        options: { 
+            responsive: true, maintainAspectRatio: false, animation: false,
+            layout: { padding: { top: 20 } }, 
+            scales: { 
+                y: { 
+                    type: yType, 
+                    min: distLog ? dynamicFloor : 0, 
+                    suggestedMax: logSafetyMax, 
+                    beginAtZero: !distLog, 
+                    grid: { color: gridColor }, 
+                    ticks: { 
+                        color: textColor, 
+                        font: {size: 10}, 
+                        callback: function(value) { if (value <= dynamicFloor && distLog) return ''; return formatK(value); } 
+                    } 
+                }, 
+                x: { grid: { display: false }, ticks: { color: textColor, font: {size: 10} } } 
+            }, 
+            plugins: { 
+                legend: { display: false }, 
+                tooltip: { 
+                    callbacks: { 
+                        // Tooltip must also use filteredRawData
+                        label: function(context) { return context.dataset.label + ': ' + filteredRawData[context.dataIndex]; } 
+                    } 
+                } 
+            } 
+        }
+    });
+}
+
+function renderLatencyHistory() {
+    console.log("Rendering Latency History (Split Axis)");
+    const data = getFilteredData(latMode, 'lat-start', 'lat-end');
+    const ctx = document.getElementById('historyChart').getContext('2d');
+    const labels = data.map(d => d.date.substring(5, 16)); 
+    const avg = data.map(d => d.average); 
+    const p95 = data.map(d => d.p95);
+
+    const minSlots = 12; 
+    if (labels.length < minSlots) { 
+        const diff = minSlots - labels.length; 
+        for (let i = 0; i < diff; i++) { 
+            labels.unshift(""); avg.unshift(null); p95.unshift(null); 
+        } 
+    }
+    
+    const maxVal = Math.max(...p95.filter(v => v !== null), 0);
+    const suggestedMax = Math.max(maxVal * 1.2, 15);
+    const palette = getThemePalette();
+    const styles = getComputedStyle(document.documentElement);
+    const gridColor = styles.getPropertyValue('--chart-grid').trim();
+    const textColor = styles.getPropertyValue('--chart-text').trim();
+    const shouldAnimate = isFirstLoad && labels.length < 500; 
+    const yType = latLog ? 'logarithmic' : 'linear';
+
+    let datasets = [];
+    if (latencyChartType === 'bar') {
+        const avg_Back = [], avg_Front = [];
+        const p95_Back = [], p95_Front = [];
+
+        for(let i=0; i<avg.length; i++) {
+            // FIX: Explicitly cast to Number to avoid string comparison errors
+            let vAvg = (avg[i] === null) ? null : Number(avg[i]);
+            let vP95 = (p95[i] === null) ? null : Number(p95[i]);
+            
+            if (vP95 !== null && vAvg !== null && vP95 >= vAvg) {
+                p95_Back.push(vP95); p95_Front.push(null);
+                avg_Back.push(null); avg_Front.push(vAvg);
+            } else {
+                p95_Back.push(null); p95_Front.push(vP95);
+                avg_Back.push(vAvg); avg_Front.push(null);
+            }
+        }
+
+        // Standardized widths (0.6 / 0.8) for all datasets
+        datasets = [
+            { type: 'bar', label: 'Average', data: avg_Back, backgroundColor: palette.avg, grouped: false, order: 2, barPercentage: 0.6, categoryPercentage: 0.8, yAxisID: 'y' },
+            { type: 'bar', label: 'P95', data: p95_Back, backgroundColor: palette.p95, grouped: false, order: 2, barPercentage: 0.6, categoryPercentage: 0.8, yAxisID: 'y' },
+            { type: 'bar', label: 'Average', data: avg_Front, backgroundColor: palette.avg, grouped: false, order: 1, barPercentage: 0.6, categoryPercentage: 0.8, yAxisID: 'y' },
+            { type: 'bar', label: 'P95', data: p95_Front, backgroundColor: palette.p95, grouped: false, order: 1, barPercentage: 0.6, categoryPercentage: 0.8, yAxisID: 'y' }
+        ];
+    } else {
+        datasets = [
+            { type: 'line', label: 'Average', data: avg, borderColor: palette.avg, backgroundColor: 'transparent', borderWidth: 1.5, pointRadius: 0, yAxisID: 'y' },
+            { type: 'line', label: 'P95', data: p95, borderColor: palette.p95, backgroundColor: 'transparent', borderWidth: 1.5, pointRadius: 0, yAxisID: 'y' }
+        ];
+    }
+
+    updateChartScroll('latency', latencyScroll, labels.length, histChart);
+
+    if (histChart && histChart.config.type === latencyChartType) {
+        histChart.data.labels = labels;
+        histChart.data.datasets = datasets;
+        histChart.options.scales.y.type = yType; 
+        histChart.options.scales.y.suggestedMax = latLog ? undefined : suggestedMax;
+        histChart.options.animation = shouldAnimate ? {} : false; 
+        histChart.update();
+        htmlLegendSplitPlugin.afterUpdate(histChart, null, {containerID: 'latency-legend'});
+    } else {
+        if (histChart) histChart.destroy();
+        histChart = new Chart(ctx, {
+            type: latencyChartType,
+            data: { labels: labels, datasets: datasets },
+            options: {
+                responsive: true, maintainAspectRatio: false, normalized: true, 
+                animation: shouldAnimate ? {} : false, 
+                spanGaps: true,
+                interaction: { mode: 'index', intersect: false },
+                plugins: { 
+                    legend: { display: false, 
+                        labels: { generateLabels: (chart) => [ 
+                            { text: 'Average', fillStyle: palette.avg, hidden: !chart.isDatasetVisible(0) && !chart.isDatasetVisible(2), datasetIndex: 0 }, 
+                            { text: 'P95', fillStyle: palette.p95, hidden: !chart.isDatasetVisible(1) && !chart.isDatasetVisible(3), datasetIndex: 1 } 
+                        ] } 
+                    }, 
+                    htmlLegendSplit: { containerID: 'latency-legend' }, 
+                    // FIX: Filter tooltip to avoid showing "Average: null" and "Average: 50" twice
+                    tooltip: { 
+                        enabled: true, backgroundColor: 'rgba(0,0,0,0.8)',
+                        filter: function(tooltipItem) { return tooltipItem.raw !== null; }
+                    } 
+                },
+                scales: {
+                    x: { ticks: { color: textColor, maxTicksLimit: 12 }, grid: { display: false } },
+                    y: { type: yType, display: true, position: 'left', beginAtZero: !latLog, grid: { color: gridColor }, ticks: { color: textColor, callback: function(value) { return formatK(value); } }, suggestedMax: latLog ? undefined : suggestedMax }
+                }
+            },
+            plugins: [htmlLegendSplitPlugin]
+        });
+    }
+}
+
+function renderUnboundHistory() {
+    console.log("Rendering Unbound History");
+    const data = getFilteredData(unbMode, 'unb-start', 'unb-end');
+    const ctx = document.getElementById('unboundChart').getContext('2d');
+    const labels = data.map(d => d.date.substring(5, 16));
+    const msgs = data.map(d => d.messages || 0); 
+    const rrsets = data.map(d => d.rrsets || 0);
+    
+    const minSlots = 12; if (labels.length < minSlots) { const diff = minSlots - labels.length; for (let i = 0; i < diff; i++) { labels.unshift(""); msgs.unshift(null); rrsets.unshift(null); } }
+    const maxVal = Math.max(...msgs.filter(v=>v!==null), ...rrsets.filter(v=>v!==null), 0); 
+    const suggestedMax = maxVal * 1.2;
+    const palette = getThemePalette(); 
+    const styles = getComputedStyle(document.documentElement); 
+    const gridColor = styles.getPropertyValue('--chart-grid').trim(); 
+    const textColor = styles.getPropertyValue('--chart-text').trim();
+    const shouldAnimate = isFirstLoad && labels.length < 500; 
+    const yType = unbLog ? 'logarithmic' : 'linear';
+
+    let datasets = [];
+    if (unboundChartType === 'line') { 
+        datasets = [ 
+            { label: 'Msg Count', data: msgs, borderColor: palette.msg, backgroundColor: 'transparent', borderWidth: 1.5, yAxisID: 'y', pointRadius: 0, fill: false, type: 'line' }, 
+            { label: 'RRset Count', data: rrsets, borderColor: palette.rr, backgroundColor: 'transparent', borderWidth: 1.5, yAxisID: 'y', pointRadius: 0, fill: false, type: 'line' } 
+        ]; 
+    } else { 
+        const msg_Back = []; const msg_Front = [];
+        const rr_Back = []; const rr_Front = [];
+        for(let i=0; i<msgs.length; i++) {
+            // FIX: Type casting
+            let vMsg = (msgs[i] === null) ? null : Number(msgs[i]);
+            let vRR = (rrsets[i] === null) ? null : Number(rrsets[i]);
+            
+            if (vMsg !== null && vRR !== null && vMsg >= vRR) {
+                msg_Back.push(vMsg); msg_Front.push(null); rr_Back.push(null); rr_Front.push(vRR);
+            } else {
+                msg_Back.push(null); msg_Front.push(vMsg); rr_Back.push(vRR); rr_Front.push(null);
+            }
+        }
+        datasets = [
+            { label: 'Msg Count', data: msg_Back, backgroundColor: palette.msg, yAxisID: 'y', type: 'bar', grouped: false, order: 2, barPercentage: 0.6, categoryPercentage: 0.8 },
+            { label: 'RRset Count', data: rr_Back, backgroundColor: palette.rr, yAxisID: 'y', type: 'bar', grouped: false, order: 2, barPercentage: 0.6, categoryPercentage: 0.8 },
+            { label: 'Msg Count', data: msg_Front, backgroundColor: palette.msg, yAxisID: 'y', type: 'bar', grouped: false, order: 1, barPercentage: 0.6, categoryPercentage: 0.8 },
+            { label: 'RRset Count', data: rr_Front, backgroundColor: palette.rr, yAxisID: 'y', type: 'bar', grouped: false, order: 1, barPercentage: 0.6, categoryPercentage: 0.8 }
+        ];
+    }
+    
+    updateChartScroll('unbound', unboundScroll, labels.length, unboundChart);
+    
+    if (unboundChart && unboundChart.config.type === unboundChartType) {
+        unboundChart.data.labels = labels; unboundChart.data.datasets = datasets;
+        unboundChart.options.scales.y.type = yType; unboundChart.options.scales.y.suggestedMax = unbLog ? undefined : suggestedMax;
+        unboundChart.options.animation = shouldAnimate ? {} : false; 
+        unboundChart.update(); 
+        htmlLegendSplitPlugin.afterUpdate(unboundChart, null, {containerID: 'unbound-legend'});
+    } else {
+        if (unboundChart) unboundChart.destroy();
+        unboundChart = new Chart(ctx, { 
+            type: unboundChartType, 
+            data: { labels: labels, datasets: datasets }, 
+            options: { 
+                responsive: true, maintainAspectRatio: false, normalized: true, animation: shouldAnimate ? {} : false, spanGaps: true, interaction: { mode: 'index', intersect: false }, 
+                plugins: { 
+                    legend: { display: false, labels: { generateLabels: (chart) => [ { text: 'Msg Count', fillStyle: palette.msg, hidden: !chart.isDatasetVisible(0) && !chart.isDatasetVisible(2), datasetIndex: 0 }, { text: 'RRset Count', fillStyle: palette.rr, hidden: !chart.isDatasetVisible(1) && !chart.isDatasetVisible(3), datasetIndex: 1 } ] } }, 
+                    htmlLegendSplit: { containerID: 'unbound-legend' }, 
+                    // FIX: Filter tooltip to avoid double values
+                    tooltip: { 
+                        enabled: true, backgroundColor: 'rgba(0,0,0,0.8)',
+                        filter: function(tooltipItem) { return tooltipItem.raw !== null; }
+                    } 
+                }, 
+                scales: { x: { ticks: { color: textColor, maxTicksLimit: 12 }, grid: { display: false } }, y: { type: yType, display: true, position: 'left', beginAtZero: !unbLog, grid: { color: gridColor }, ticks: { color: textColor, callback: function(value) { return formatK(value); } }, title: { display: true, text: 'Count', color: textColor }, suggestedMax: unbLog ? undefined : suggestedMax } } 
+            }, 
+            plugins: [htmlLegendSplitPlugin] 
+        });
+    }
+}
+
+function renderUnboundMemoryHistory() {
+    console.log("Rendering Memory History");
+    const data = getFilteredData(memMode, 'mem-start', 'mem-end');
+    const ctx = document.getElementById('memoryChart').getContext('2d');
+    const labels = data.map(d => d.date.substring(5, 16)); 
+    const mem_msg = data.map(d => d.cache_mb_msg || 0); 
+    const mem_rr = data.map(d => d.cache_mb_rr || 0);
+    
+    const minSlots = 12; if (labels.length < minSlots) { const diff = minSlots - labels.length; for (let i = 0; i < diff; i++) { labels.unshift(""); mem_msg.unshift(null); mem_rr.unshift(null); } }
+    const maxVal = Math.max(...mem_msg.filter(v=>v!==null), ...mem_rr.filter(v=>v!==null), 0); 
+    const suggestedMax = Math.max(maxVal * 1.2, 4);
+    const palette = getThemePalette(); 
+    const styles = getComputedStyle(document.documentElement); 
+    const gridColor = styles.getPropertyValue('--chart-grid').trim(); 
+    const textColor = styles.getPropertyValue('--chart-text').trim();
+    const shouldAnimate = isFirstLoad && labels.length < 500; 
+    const yType = memLog ? 'logarithmic' : 'linear';
+
+    let datasets = [];
+    if (memChartType === 'line') { 
+        datasets = [ 
+            { label: 'Msg Cache MB', data: mem_msg, borderColor: palette.mem_msg, backgroundColor: 'transparent', borderWidth: 1.5, yAxisID: 'y', pointRadius: 0, fill: false, type: 'line' }, 
+            { label: 'RRset Cache MB', data: mem_rr, borderColor: palette.mem_rr, backgroundColor: 'transparent', borderWidth: 1.5, yAxisID: 'y', pointRadius: 0, fill: false, type: 'line' } 
+        ]; 
+    } else { 
+        const msg_Back = []; const msg_Front = [];
+        const rr_Back = []; const rr_Front = [];
+        for(let i=0; i<mem_msg.length; i++) {
+            // FIX: Type casting
+            let vMsg = (mem_msg[i] === null) ? null : Number(mem_msg[i]);
+            let vRR = (mem_rr[i] === null) ? null : Number(mem_rr[i]);
+
+            if (vMsg !== null && vRR !== null && vMsg >= vRR) {
+                msg_Back.push(vMsg); msg_Front.push(null); rr_Back.push(null); rr_Front.push(vRR);
+            } else {
+                msg_Back.push(null); msg_Front.push(vMsg); rr_Back.push(vRR); rr_Front.push(null);
+            }
+        }
+        datasets = [ 
+            { label: 'Msg Cache MB', data: msg_Back, backgroundColor: palette.mem_msg, yAxisID: 'y', type: 'bar', grouped: false, order: 2, barPercentage: 0.6, categoryPercentage: 0.8 }, 
+            { label: 'RRset Cache MB', data: rr_Back, backgroundColor: palette.mem_rr, yAxisID: 'y', type: 'bar', grouped: false, order: 2, barPercentage: 0.6, categoryPercentage: 0.8 },
+            { label: 'Msg Cache MB', data: msg_Front, backgroundColor: palette.mem_msg, yAxisID: 'y', type: 'bar', grouped: false, order: 1, barPercentage: 0.6, categoryPercentage: 0.8 }, 
+            { label: 'RRset Cache MB', data: rr_Front, backgroundColor: palette.mem_rr, yAxisID: 'y', type: 'bar', grouped: false, order: 1, barPercentage: 0.6, categoryPercentage: 0.8 } 
+        ]; 
+    }
+    
+    updateChartScroll('memory', memScroll, labels.length, memChart);
+    
+    if (memChart && memChart.config.type === memChartType) { 
+        memChart.data.labels = labels; memChart.data.datasets = datasets;
+        memChart.options.scales.y.type = yType; memChart.options.scales.y.suggestedMax = memLog ? undefined : suggestedMax; 
+        memChart.options.animation = shouldAnimate ? {} : false; 
+        memChart.update(); 
+        htmlLegendSplitPlugin.afterUpdate(memChart, null, {containerID: 'memory-legend'}); 
+    } else { 
+        if (memChart) memChart.destroy(); 
+        memChart = new Chart(ctx, { 
+            type: memChartType, 
+            data: { labels: labels, datasets: datasets }, 
+            options: { 
+                responsive: true, maintainAspectRatio: false, normalized: true, animation: shouldAnimate ? {} : false, spanGaps: true, interaction: { mode: 'index', intersect: false }, 
+                plugins: { 
+                    legend: { display: false, labels: { generateLabels: (chart) => [ { text: 'Msg Cache MB', fillStyle: palette.mem_msg, hidden: !chart.isDatasetVisible(0) && !chart.isDatasetVisible(2), datasetIndex: 0 }, { text: 'RRset Cache MB', fillStyle: palette.mem_rr, hidden: !chart.isDatasetVisible(1) && !chart.isDatasetVisible(3), datasetIndex: 1 } ] } }, 
+                    htmlLegendSplit: { containerID: 'memory-legend' }, 
+                    // FIX: Filter tooltip to avoid double values
+                    tooltip: { 
+                        enabled: true, backgroundColor: 'rgba(0,0,0,0.8)',
+                        filter: function(tooltipItem) { return tooltipItem.raw !== null; }
+                    } 
+                }, 
+                scales: { x: { ticks: { color: textColor, maxTicksLimit: 12 }, grid: { display: false } }, y: { type: yType, display: true, position: 'left', beginAtZero: !memLog, grid: { color: gridColor }, ticks: { color: textColor, callback: function(value) { return formatK(value); } }, title: { display: true, text: 'MB', color: textColor }, suggestedMax: memLog ? undefined : suggestedMax } } 
+            }, 
+            plugins: [htmlLegendSplitPlugin] 
+        }); 
+    }
+}
+
+function renderEfficiencyChart() {
+    console.log("Rendering Efficiency Chart");
+    const data = getFilteredData(effMode, 'eff-start', 'eff-end');
+    const ctx = document.getElementById('efficiencyChart').getContext('2d');
+    const labels = data.map(d => d.date.substring(5, 16)); const hits = data.map(d => d.diff_hits || 0); const miss = data.map(d => d.diff_miss || 0);
+    const minSlots = 12; if (labels.length < minSlots) { const diff = minSlots - labels.length; for (let i = 0; i < diff; i++) { labels.unshift(""); hits.unshift(null); miss.unshift(null); } }
+    const maxVal = Math.max(...hits.filter(v=>v!==null), ...miss.filter(v=>v!==null), 0); 
+    const suggestedMax = Math.max(maxVal * 1.1, 20);
+    const palette = getThemePalette(); 
+    const styles = getComputedStyle(document.documentElement); 
+    const gridColor = styles.getPropertyValue('--chart-grid').trim(); 
+    const textColor = styles.getPropertyValue('--chart-text').trim();
+    const shouldAnimate = isFirstLoad && labels.length < 500; 
+    const yType = effLog ? 'logarithmic' : 'linear';
+
+    let datasets = [];
+    if (effChartType === 'line') { 
+        datasets = [ 
+            { label: 'Cache Hits', data: hits, borderColor: palette.diff_hit, backgroundColor: 'transparent', borderWidth: 1.5, pointRadius: 0, fill: false, type: 'line' }, 
+            { label: 'Cache Misses', data: miss, borderColor: palette.diff_miss, backgroundColor: 'transparent', borderWidth: 1.5, pointRadius: 0, fill: false, type: 'line' } 
+        ]; 
+    } else { 
+        const hits_Back = []; const hits_Front = [];
+        const miss_Back = []; const miss_Front = [];
+        for(let i=0; i<hits.length; i++) {
+            // FIX: Type casting
+            let vHit = (hits[i] === null) ? null : Number(hits[i]);
+            let vMiss = (miss[i] === null) ? null : Number(miss[i]);
+
+            if (vHit !== null && vMiss !== null && vHit >= vMiss) {
+                hits_Back.push(vHit); hits_Front.push(null); miss_Back.push(null); miss_Front.push(vMiss);
+            } else {
+                hits_Back.push(null); hits_Front.push(vHit); miss_Back.push(vMiss); miss_Front.push(null);
+            }
+        }
+        datasets = [ 
+            { label: 'Cache Hits', data: hits_Back, backgroundColor: palette.diff_hit, type: 'bar', grouped: false, order: 2, barPercentage: 0.6, categoryPercentage: 0.8 }, 
+            { label: 'Cache Misses', data: miss_Back, backgroundColor: palette.diff_miss, type: 'bar', grouped: false, order: 2, barPercentage: 0.6, categoryPercentage: 0.8 },
+            { label: 'Cache Hits', data: hits_Front, backgroundColor: palette.diff_hit, type: 'bar', grouped: false, order: 1, barPercentage: 0.6, categoryPercentage: 0.8 }, 
+            { label: 'Cache Misses', data: miss_Front, backgroundColor: palette.diff_miss, type: 'bar', grouped: false, order: 1, barPercentage: 0.6, categoryPercentage: 0.8 } 
+        ]; 
+    }
+    
+    updateChartScroll('efficiency', effScroll, labels.length, effChart);
+    
+    if (effChart && effChart.config.type === effChartType) { 
+        effChart.data.labels = labels; effChart.data.datasets = datasets;
+        effChart.options.scales.y.type = yType; effChart.options.scales.y.suggestedMax = effLog ? undefined : suggestedMax; 
+        effChart.options.animation = shouldAnimate ? {} : false; 
+        effChart.update(); 
+        htmlLegendSplitPlugin.afterUpdate(effChart, null, {containerID: 'efficiency-legend'}); 
+    } else { 
+        if (effChart) effChart.destroy(); 
+        effChart = new Chart(ctx, { 
+            type: effChartType, 
+            data: { labels: labels, datasets: datasets }, 
+            options: { 
+                responsive: true, maintainAspectRatio: false, normalized: true, animation: shouldAnimate ? {} : false, spanGaps: true, interaction: { mode: 'index', intersect: false }, 
+                plugins: { 
+                    legend: { display: false, labels: { generateLabels: (chart) => [ { text: 'Cache Hits', fillStyle: palette.diff_hit, hidden: !chart.isDatasetVisible(0) && !chart.isDatasetVisible(2), datasetIndex: 0 }, { text: 'Cache Misses', fillStyle: palette.diff_miss, hidden: !chart.isDatasetVisible(1) && !chart.isDatasetVisible(3), datasetIndex: 1 } ] } }, 
+                    htmlLegendSplit: { containerID: 'efficiency-legend' }, 
+                    // FIX: Filter tooltip to avoid double values
+                    tooltip: { 
+                        enabled: true, backgroundColor: 'rgba(0,0,0,0.8)',
+                        filter: function(tooltipItem) { return tooltipItem.raw !== null; }
+                    } 
+                }, 
+                scales: { x: { ticks: { color: textColor, maxTicksLimit: 12 }, grid: { display: false } }, y: { type: yType, display: true, position: 'left', beginAtZero: !effLog, grid: { color: gridColor }, ticks: { color: textColor, callback: function(value) { return formatK(value); } }, suggestedMax: effLog ? undefined : suggestedMax } } 
+            }, 
+            plugins: [htmlLegendSplitPlugin] 
+        }); 
+    }
+}
+
+// ==========================================
+// NEW: Standard Deviation Chart Logic
+// ==========================================
+
+function updateSdTime(mode) {
+    sdConfig.timeWindow = mode;
+    updateFilterButtons('f-sd', mode);
+    toggleCustomInputs('sd-custom-inputs', mode);
+    
+    // Get data for auto-scroll check
+    const d = getFilteredData(sdConfig.timeWindow, 'sd-start', 'sd-end');
+    checkAutoScroll('sd', d);
+    
+    renderSdHistory();
+}
+
+function applySdCustom() {
+    sdConfig.timeWindow = 'cust';
+    renderSdHistory();
+}
+
+function renderSdHistory() {
+    console.log("Rendering Standard Deviation History (Split Axis)");
+    
+    // 1. Data Preparation
+    const data = getFilteredData(sdConfig.timeWindow, 'sd-start', 'sd-end');
+    
+    // Safety check: Does canvas exist?
+    const canvasEl = document.getElementById('sdChart');
+    if (!canvasEl) {
+        console.warn("Skipping SD Chart Render: Canvas element not found.");
+        return;
+    }
+    const ctx = canvasEl.getContext('2d');
+    
+    const labels = data.map(d => d.date.substring(5, 16));
+    const avg = data.map(d => d.average === null ? null : Number(d.average));
+    const sd  = data.map(d => (d.stddev === undefined || d.stddev === null) ? null : Number(d.stddev));
+
+    // Fill gaps for sparse data
+    const minSlots = 12;
+    if (labels.length < minSlots) {
+        const diff = minSlots - labels.length;
+        for (let i = 0; i < diff; i++) { 
+            labels.unshift(""); avg.unshift(null); sd.unshift(null); 
+        }
+    }
+
+    // Calculate Scales
+    const validValues = [...avg.filter(v=>v!==null), ...sd.filter(v=>v!==null)];
+    const maxVal = Math.max(...validValues, 0);
+    const suggestedMax = Math.max(maxVal * 1.2, 10);
+
+    // Theme & Colors
+    const palette = getThemePalette();
+    const styles = getComputedStyle(document.documentElement);
+    const gridColor = styles.getPropertyValue('--chart-grid').trim();
+    const textColor = styles.getPropertyValue('--chart-text').trim();
+    
+    // LOGIC: Use Teal for Average, Red for SD
+    const colorAvg = palette.sd_avg; 
+    const colorSd  = palette.sd_val; 
+
+    // Animation Logic (Identical to Latency Chart)
+    const shouldAnimate = isFirstLoad && labels.length < 500;
+    const yType = sdConfig.isLog ? 'logarithmic' : 'linear';
+
+    let datasets = [];
+
+    // ---------------------------------------------------------
+    // FORMATTING LOGIC: EXACT MATCH OF LATENCY CHART
+    // ---------------------------------------------------------
+    if (sdConfig.chartType === 'bar') {
+        const avg_Back = [], avg_Front = [];
+        const sd_Back = [], sd_Front = [];
+
+        // Split data into Front/Back layers for correct Z-Index rendering
+        for(let i=0; i<avg.length; i++) {
+            let vAvg = avg[i];
+            let vSd = sd[i];
+            
+            if (vAvg !== null && vSd !== null && vAvg >= vSd) {
+                // Average is taller: Put Average in Back, SD in Front
+                avg_Back.push(vAvg); avg_Front.push(null);
+                sd_Back.push(null); sd_Front.push(vSd);
+            } else {
+                // SD is taller: Put SD in Back, Average in Front
+                avg_Back.push(null); avg_Front.push(vAvg);
+                sd_Back.push(vSd); sd_Front.push(null);
+            }
+        }
+
+        datasets = [
+            // BACK LAYERS (Order 2)
+            { type: 'bar', label: 'Average', data: avg_Back, backgroundColor: colorAvg, grouped: false, order: 2, barPercentage: 0.6, categoryPercentage: 0.8, yAxisID: 'y' },
+            { type: 'bar', label: 'Std Dev', data: sd_Back, backgroundColor: colorSd, grouped: false, order: 2, barPercentage: 0.6, categoryPercentage: 0.8, yAxisID: 'y' },
+            // FRONT LAYERS (Order 1)
+            { type: 'bar', label: 'Average', data: avg_Front, backgroundColor: colorAvg, grouped: false, order: 1, barPercentage: 0.6, categoryPercentage: 0.8, yAxisID: 'y' },
+            { type: 'bar', label: 'Std Dev', data: sd_Front, backgroundColor: colorSd, grouped: false, order: 1, barPercentage: 0.6, categoryPercentage: 0.8, yAxisID: 'y' }
+        ];
+    } else {
+        // LINE MODE
+        datasets = [
+            { type: 'line', label: 'Average', data: avg, borderColor: colorAvg, backgroundColor: 'transparent', borderWidth: 1.5, pointRadius: 0, yAxisID: 'y' },
+            { type: 'line', label: 'Std Dev', data: sd, borderColor: colorSd, backgroundColor: 'transparent', borderWidth: 1.5, pointRadius: 0, yAxisID: 'y' }
+        ];
+    }
+
+    // Scroll handling
+    updateChartScroll('sd', sdConfig.isScroll, labels.length, sdChart);
+
+    // Chart Update / Creation
+    if (sdChart && sdChart.config.type === sdConfig.chartType) {
+        sdChart.data.labels = labels;
+        sdChart.data.datasets = datasets;
+        sdChart.options.scales.y.type = yType;
+        sdChart.options.scales.y.suggestedMax = sdConfig.isLog ? undefined : suggestedMax;
+        sdChart.options.animation = shouldAnimate ? {} : false;
+        sdChart.update();
+        // Use the shared Legend Split Plugin (This fixes the legend interaction)
+        htmlLegendSplitPlugin.afterUpdate(sdChart, null, {containerID: 'sd-legend'});
+    } else {
+        if (sdChart) sdChart.destroy();
+        sdChart = new Chart(ctx, {
+            type: sdConfig.chartType,
+            data: { labels: labels, datasets: datasets },
+            options: {
+                responsive: true, maintainAspectRatio: false, normalized: true,
+                animation: shouldAnimate ? {} : false,
+                spanGaps: true,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    // Use standard Legend Generator logic from Latency Chart
+                    legend: { 
+                        display: false,
+                        labels: { 
+                            // Custom label generator to handle the split datasets
+                            generateLabels: (chart) => [ 
+                                { text: 'Average', fillStyle: colorAvg, hidden: !chart.isDatasetVisible(0) && !chart.isDatasetVisible(2), datasetIndex: 0 }, 
+                                { text: 'Std Dev', fillStyle: colorSd, hidden: !chart.isDatasetVisible(1) && !chart.isDatasetVisible(3), datasetIndex: 1 } 
+                            ] 
+                        }
+                    },
+                    htmlLegendSplit: { containerID: 'sd-legend' },
+                    tooltip: {
+                        enabled: true, backgroundColor: 'rgba(0,0,0,0.8)',
+                        filter: function(tooltipItem) { return tooltipItem.raw !== null; }
+                    }
+                },
+                scales: {
+                    x: { ticks: { color: textColor, maxTicksLimit: 12 }, grid: { display: false } },
+                    y: { 
+                        type: yType, display: true, position: 'left', 
+                        beginAtZero: !sdConfig.isLog, 
+                        grid: { color: gridColor }, 
+                        ticks: { color: textColor, callback: function(value) { return formatK(value); } },
+                        suggestedMax: sdConfig.isLog ? undefined : suggestedMax 
+                    }
+                }
+            },
+            plugins: [htmlLegendSplitPlugin]
+        });
+    }
+}
+
+function checkStaleData(historyData, lastJsonDate) {
+    // --- 1. NEW INSTALLATION SAFETY CHECK ---
+    // If we have fewer than 5 entries, we haven't learned the schedule yet.
+    // We skip the check to avoid scaring new users.
+    if (!historyData || historyData.length < 5) {
+        console.log("Stale Check: Not enough history yet (New Install?) - Skipping.");
+        return;
+    }
+
+    // --- 2. CALCULATE MEDIAN INTERVAL (Last 30 Entries) ---
+    // We grab the last 30 entries to smooth out anomalies
+    const sample = historyData.slice(-30); 
+    const intervals = [];
+
+    for(let i = 1; i < sample.length; i++) {
+	const t1 = safeDate(sample[i-1].date).getTime();
+	const t2 = safeDate(sample[i].date).getTime();
+        const diffMinutes = (t2 - t1) / 1000 / 60;
+        
+        // Sanity check: ignore negative or zero diffs (clock changes/duplicates)
+        if (diffMinutes > 0.1) intervals.push(diffMinutes);
+    }
+
+    if (intervals.length === 0) return;
+
+    // Sort to find Median
+    intervals.sort((a, b) => a - b);
+    const mid = Math.floor(intervals.length / 2);
+    const medianInterval = intervals.length % 2 !== 0 ? intervals[mid] : (intervals[mid - 1] + intervals[mid]) / 2;
+
+    // --- 3. DETERMINE THRESHOLD ---
+    // Rule: Warning triggers if we are 3x later than the median interval.
+    // Safety: Minimum threshold is 5 minutes (protects 1-min cron jobs from network lag)
+    const thresholdMinutes = Math.max(medianInterval * 3, 5);
+
+    console.log(`Stale Check: Schedule detected ~${medianInterval.toFixed(1)} min. Warning limit: ${thresholdMinutes.toFixed(1)} min.`);
+
+    // --- 4. COMPARE WITH CURRENT TIME ---
+    const lastUpdate = safeDate(lastJsonDate).getTime();
+    const now = new Date().getTime();
+    const minutesSinceLast = (now - lastUpdate) / 1000 / 60;
+
+    if (minutesSinceLast > thresholdMinutes) {
+        // --- TRIGGER VISUAL WARNING ---
+        const headerEl = document.getElementById('header_date');
+        if (headerEl) {
+            // Replaces the date with a red warning
+            headerEl.innerHTML = `⚠️ <span style="color:var(--acc-red); font-weight:bold;">DATA STALE: Script stopped? (Last run: ${Math.round(minutesSinceLast)} mins ago)</span>`;
+            
+            // Optional: Also dim the dashboard to indicate inactivity?
+            // document.body.style.opacity = "0.8"; 
+        }
+    }
+}
+
+// ==========================================
+// 5. DATA FETCHING & STARTUP
+// ==========================================
+
+
+// --- 2. INTEGRITY CHECKER (Is the data corrupt?) ---
+function checkDataIntegrity(stats) {
+    if (!stats) return;
+
+    // Rule 1: Negatives impossible
+    if (stats.total_queries < 0) throw new Error("Data Corruption: Negative Total");
+
+    // Rule 2: Valid + Invalid cannot exceed Total (buffer allowed for active writes)
+    const total = Number(stats.total_queries || 0);
+    const valid = Number(stats.total_valid || 0);
+    const invalid = Number(stats.unsuccessful || 0);
+    
+    if ((valid + invalid) > (total + 50)) {
+        console.warn("Sanity Check Warning: Valid+Invalid > Total");
+    }
+
+    // Rule 3: Unexpected Zero (System claims 0 queries but history implies active usage)
+    if (total === 0 && Array.isArray(fullHistoryData) && fullHistoryData.length > 10) {
+         const lastHist = fullHistoryData[fullHistoryData.length - 1];
+         // If last history had >100 queries and now we have 0, it's suspicious
+         if (lastHist && lastHist.total_queries > 100) {
+             throw new Error("Data Anomaly: Queries dropped to 0 unexpectedly");
+         }
+    }
+}
+
+async function fetchData() {
+    try {
+        // 1. Fetch Snapshot
+        console.log("Fetching snapshot data:", jsonFilename);
+        const response = await fetch(jsonFilename + '?t=' + new Date().getTime());
+        if (!response.ok) throw new Error("Snapshot file not found");
+        
+        const data = await response.json();
+        
+        // --- SUCCESS: Reset Failure Counter ---
+        fetchFailCount = 0; 
+        
+        globalData = data;
+        
+        // --- CHECK 1: Data Integrity ---
+        checkDataIntegrity(globalData.stats);
+        
+        // Update DOM Elements
+        refreshSeconds = 60; 
+        updateTimerDisplay();
+        
+        setText('script-v-num', data.version || "Unknown"); 
+        if (!updateChecked) { checkForUpdates(data.version || "0.0.0"); updateChecked = true; }
+        
+        // Reset header to normal (clears previous warnings)
+        setText('header_date', "Last Analysis: " + data.date);
+        
+        setText('time_period', data.time_period || "All Time");
+        setText('query_mode', data.mode || "Normal");
+        
+        // ... (Standard DOM Updates for Stats) ...
+        const s = data.stats;
+        setText('p_total', s.total_queries);
+        setText('p_invalid', s.unsuccessful);
+        setText('p_invalid_pct', calcPct(s.unsuccessful, s.total_queries));
+        setText('p_valid', s.total_valid);
+        
+        const valTotal = Number(s.total_queries || 1);
+        const valBlocked = Number(s.blocked || 0);
+        const valIgnored = Number(s.ignored || 0);
+        const valAnalyzed = Number(s.analyzed || 0);
+
+        setText('p_blocked', valBlocked + " / " + valIgnored);
+        setText('p_blocked_pct', calcPct(valBlocked + valIgnored, valTotal));
+        setText('p_analyzed', s.analyzed);
+        setText('p_analyzed_pct', calcPct(valAnalyzed, valTotal));
+        
+        const l = data.latency;
+        setText('p_avg', l.average + " ms");
+        
+        // --- NEW: Standard Deviation Population ---
+        // If stddev is present in the JSON, display it. Otherwise show "--"
+        const stdDisplay = (l.stddev !== undefined && l.stddev !== null) ? l.stddev + " ms" : "--";
+        setText('p_std', stdDisplay);
+        // ------------------------------------------
+
+        setText('p_med', l.median + " ms");
+        setText('p_95', l.p95 + " ms");
+        const u = data.unbound;
+        if (u) {
+            const statusEl = document.getElementById('u_status_badge');
+            if(statusEl) {
+                const isActive = (u.status && u.status.toLowerCase().includes('active'));
+                statusEl.innerText = isActive ? "Active" : "Issue / Check";
+                statusEl.className = "badge " + (isActive ? "bg-success" : "bg-danger");
+            }
+            const tHits = parseInt(u.total_hits) || 0;
+            const tMiss = parseInt(u.total_miss) || 0;
+            setText('u_total', tHits + tMiss);
+            setText('u_hits', u.total_hits);
+            setText('u_hit_pct', "(" + u.ratio + "%)");
+            setText('u_miss', u.total_miss);
+            setText('u_miss_pct', "(" + (100 - parseFloat(u.ratio)).toFixed(2) + "%)");
+            setText('u_pre', u.prefetch);
+            setText('u_pre_pct', calcPct(u.prefetch, u.total_hits) + " of Hits");
+            
+            if (u.memory && u.memory.msg && u.memory.rrset) {
+                const mM = u.memory.msg;
+                setText('mem_msg_txt', mM.used_mb + "MB / " + mM.limit_mb + "MB (" + mM.percent + "%)");
+                const bM = document.getElementById('mem_msg_bar'); if(bM) bM.style.width = mM.percent + "%";
+                const mR = u.memory.rrset;
+                setText('mem_rr_txt', mR.used_mb + "MB / " + mR.limit_mb + "MB (" + mR.percent + "%)");
+                const bR = document.getElementById('mem_rr_bar'); if(bR) bR.style.width = mR.percent + "%";
+            } else { setText('mem_msg_txt', "N/A"); setText('mem_rr_txt', "N/A"); }
+            
+            if (u.cache_count) { setText('ucc_msg', u.cache_count.messages); setText('ucc_rr', u.cache_count.rrsets); }
+        }
+        renderSnapshotCharts(data); 
+
+        // 2. Fetch History
+        console.log("Fetching history data:", historyFilename);
+        const hResp = await fetch(historyFilename + '?t=' + new Date().getTime());
+        if (hResp.ok) {
+            fullHistoryData = await hResp.json();
+            
+            // --- CHECK 2: Stale Data ---
+            if (globalData && globalData.date) {
+                checkStaleData(fullHistoryData, globalData.date);
+            }
+            
+            renderLatencyHistory();
+            renderUnboundHistory();
+            renderUnboundMemoryHistory(); 
+            renderEfficiencyChart();
+			renderSdHistory();
+            
+            if (isFirstLoad) {
+                console.log("First Load Complete. Animations disabled for future updates.");
+                isFirstLoad = false;
+            }
+        } else {
+            console.warn("History file not found or empty");
+        }
+
+    } catch (error) {
+        console.error("Dashboard Error:", error);
+        
+        // --- CHECK 3: Connection / Failure Counter ---
+        fetchFailCount++;
+        
+        const headerEl = document.getElementById('header_date');
+        if (headerEl) {
+            // If it's a specific Integrity Error, show that message
+            if (error.message.includes("Data")) {
+                 headerEl.innerHTML = `⛔ <span style="color:var(--acc-red); font-weight:bold;">${error.message}</span>`;
+            } 
+            // Otherwise, it's likely a network/connection error
+            else if (fetchFailCount >= 3) {
+                headerEl.innerHTML = `⛔ <span style="color:var(--acc-red); font-weight:bold;">CONNECTION LOST: Cannot reach server (x${fetchFailCount})</span>`;
+            } else {
+                 headerEl.innerHTML = `<span style="color:var(--acc-yellow);">Connection Issue... Retrying (x${fetchFailCount})</span>`;
+            }
+        }
+    }
+}
+
+function updateTimerDisplay() { document.getElementById('refreshTimer').innerText = "Auto-refresh in " + refreshSeconds + "s"; }
+setInterval(() => { refreshSeconds--; if (refreshSeconds <= 0) fetchData(); else updateTimerDisplay(); }, 1000);
+
+const urlParams = new URLSearchParams(window.location.search);
+const profile = urlParams.get('p') || 'default';
+const jsonFilename = 'dash_' + profile + '.json';
+const historyFilename = 'dash_' + profile + '.h.json';
+const displayProfile = profile.replace(/[^a-z0-9]/gi, '').toUpperCase();
+setText('profile-indicator', displayProfile);
+setText('dash-v-num', dashVersion);
+
+// Kickoff
+console.log("Starting Dashboard for profile:", displayProfile);
+fetchData();
+</script>
+</body>
+</html>
