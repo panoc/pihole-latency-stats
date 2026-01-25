@@ -33,7 +33,9 @@
 
 
 7. **[Metric Definitions (The Analytics)](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#7-metric-definitions-the-analytics)**
-8. **[Troubleshooting & Debugging](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#8-troubleshooting--debugging)**
+8. **[Update Notifications & Maintenance](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#8-Update-Notifications-&-Maintenance)**
+   *[The Unistaller]### 🗑️ The Uninstaller
+10. **[Troubleshooting & Debugging](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#9-troubleshooting--debugging)**
 
 ---
 
@@ -407,11 +409,73 @@ The JS engine includes a **Gap Detection Algorithm**.
 * `SQRT( (Sum(time^2) / count) - (avg^2) )`.
 * Measures "Jitter". Ideally, should be close to 0.
 
-
-
 ---
 
-## 8. Troubleshooting & Debugging
+## 8. Update Notifications & Maintenance
+
+PHLS v4.0 includes a "Version Check" system. It keeps you informed about new features or fixes without automatically modifying your system files.
+
+### 🔄 The Update Checker
+The installer deploys a lightweight background check script named `phls_version_check.sh`.
+
+* **Location:** `~/phls/phls_version_check.sh`
+* **Schedule:** Runs automatically every **3 days** (via Cron).
+* **How it works:**
+    1.  It downloads a tiny `version` file from the official repository to your local folder.
+    2.  It **does not** download or change any code. It only updates the version definition file.
+    3.  This ensures your customizations are never overwritten automatically.
+
+### 🔔 How you get notified
+Since the system doesn't auto-upgrade, it uses the `version` file to alert you in two places:
+
+1.  **Terminal (CLI):**
+    Every time you run `pihole_stats.sh`, it compares its internal version against the downloaded `version` file.
+    * *If an update exists:* You will see a bright **[NEW UPDATE AVAILABLE]** banner at the bottom of your output with a link to the release.
+
+2.  **Dashboard:**
+    The dashboard checks the `version` file every time it loads.
+    * *If an update exists:* An notification link (e.g., `(NEW v4.1)`) will appear in the footer next to the version number.
+
+### ⚡ How to Upgrade
+When you see a notification, you update the system manually by running the installer command again. It detects your existing setup and performs a "Safe Upgrade" (keeping your config and history intact).
+
+```bash
+curl -sL [https://github.com/panoc/pihole-latency-stats/releases/latest/download/install_phls.sh](https://github.com/panoc/pihole-latency-stats/releases/latest/download/install_phls.sh) | sudo bash
+
+```
+
+### 🗑️ The Uninstaller
+
+The project includes a dedicated uninstaller generated during installation. This ensures a clean removal of all components, including hidden cron jobs and temporary files.
+
+* **Location:** `~/phls/phls_uninstall.sh`
+* **How to Run:**
+```bash
+sudo ~/phls/phls_uninstall.sh
+
+```
+
+
+* **What it Removes:**
+* The `~/phls/` directory and all scripts.
+* The Dashboard files from the web server directory.
+* **All Cron Jobs:** It scans your crontab and removes every entry associated with PHLS (including sub-minute sleep loops).
+* **Databases:** Removes the profile registry and history files.
+
+
+
+> **⚠️ Warning:** Running the uninstaller **permanently deletes** your historical latency data (`.h.json` files). If you wish to keep your data, backup the `json` files before running this script.
+
+```
+
+### Summary of Changes made based on the code:
+1.  **Correction:** Clarified that `phls_version_check.sh` only downloads the `version` file, it does *not* download the code.
+2.  **Correction:** Defined the "Notification" flow. `pihole_stats.sh` reads the local file to print the banner, it doesn't check the internet itself (making it faster/safer).
+3.  **Upgrade Path:** Added the instruction that the user must run the installer again to actually apply the update.
+
+```
+
+## 9. Troubleshooting & Debugging
 
 **Problem: Cron job creates pile-ups / CPU 100%.**
 
