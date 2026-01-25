@@ -93,8 +93,8 @@ char="|"             # Character for the bar
 
 # Default Tiers
 L01="0.009"; L02="0.1"; L03="0.5"; L04="1"; L05="10"
-L06="25"; L07="60"; L08="120"
-L09="300"; L10="600"; L11="1000"; L12=""; L13=""; L14=""; L15=""; L16=""; L17=""; L18=""; L19=""; L20=""
+L06="50"; L07="120"; L08="300"
+L09="600"; L10="1000"; L11=""; L12=""; L13=""; L14=""; L15=""; L16=""; L17=""; L18=""; L19=""; L20=""
 
 # Default Time Range
 QUERY_START=0
@@ -475,59 +475,92 @@ U_MEM_MSG="0"; U_MEM_RR="0"; U_LIM_MSG="0"; U_LIM_RR="0"
 U_PCT_MEM_MSG="0.00"; U_PCT_MEM_RR="0.00"; UCC_MSG="0"; UCC_RR="0"; HAS_UNBOUND=false
 
 collect_unbound_stats() {
+    # Initialize safe defaults (0 instead of empty) to prevent JSON errors
+    U_HITS="0"; U_MISS="0"; U_PRE="0"; U_TOTAL="0"
+    U_PCT_HIT="0.00"; U_PCT_MISS="0.00"; U_PCT_PRE="0.00"
+    U_MEM_MSG="0"; U_MEM_RR="0"; U_LIM_MSG="0"; U_LIM_RR="0"
+    U_PCT_MEM_MSG="0.00"; U_PCT_MEM_RR="0.00"; UCC_MSG="0"; UCC_RR="0"
+    HAS_UNBOUND=false; U_STATUS="Disabled"
+
     if [ "$SHOW_UNBOUND" == "no" ]; then return; fi
+
+    # 1. Check if binary exists
     if ! command -v unbound-control &> /dev/null; then 
         [ "$SHOW_UNBOUND" == "yes" ] || [ "$SHOW_UNBOUND" == "only" ] && echo "Error: unbound-control not found" >&2
         [ "$DEBUG_MODE" = true ] && echo "[$(date)] Error: unbound-control not found" >> "$DEBUG_LOG"
         return
     fi
 
+    # 2. Check if Auto-Detection is enabled
     if [ "$SHOW_UNBOUND" == "default" ]; then
         if [ "$ENABLE_UNBOUND" == "false" ]; then return; fi
         if [ "$ENABLE_UNBOUND" == "auto" ]; then
             IS_RUNNING=false
             if systemctl is-active --quiet unbound 2>/dev/null || pgrep -x unbound >/dev/null; then IS_RUNNING=true; fi
             if [ "$IS_RUNNING" = false ]; then return; fi
+            # Verify Pi-hole is actually using Localhost/Unbound
             if ! grep -qE "PIHOLE_DNS_.*=(127\.0\.0\.1|::1)" /etc/pihole/setupVars.conf 2>/dev/null && \
                ! grep -qE "^server=(127\.0\.0\.1|::1)" /etc/dnsmasq.d/*.conf 2>/dev/null && \
                ! grep -F "127.0.0.1" /etc/pihole/pihole.toml >/dev/null 2>&1; then return; fi
         fi
     fi
 
+    # 3. Attempt to get stats
     RAW_STATS=$(sudo /usr/sbin/unbound-control -c /etc/unbound/unbound.conf stats_noreset 2>&1)
+    
     if [ "$DEBUG_MODE" = true ]; then echo "[$(date)] RAW UNBOUND OUTPUT: $RAW_STATS" >> "$DEBUG_LOG"; fi
-    if [ -z "$RAW_STATS" ] || echo "$RAW_STATS" | grep -iEq "^error:|connection refused"; then
-         HAS_UNBOUND=true; U_STATUS="Error (Check Perms)"
+    
+    # 4. SAFETY CHECK: Did it fail?
+    if [ -z "$RAW_STATS" ] || echo "$RAW_STATS" | grep -iEq "^error:|connection refused|permission denied|failed"; then
+         # It failed, but we keep HAS_UNBOUND=true so the dashboard knows we *tried*.
+         # Since values are already init to 0, we just set status.
+         HAS_UNBOUND=true
+         U_STATUS="Error (Check Perms)"
          [ "$DEBUG_MODE" = true ] && echo "[$(date)] Unbound stats error: $RAW_STATS" >> "$DEBUG_LOG"
          return
     fi
 
+    # 5. Success - Parse Data
     HAS_UNBOUND=true; U_STATUS="Active (Integrated)"
+    
+    # Extract values safely (default to 0 if grep fails)
     U_HITS=$(echo "$RAW_STATS" | grep '^total.num.cachehits=' | cut -d= -f2); U_HITS=${U_HITS:-0}
     U_MISS=$(echo "$RAW_STATS" | grep '^total.num.cachemiss=' | cut -d= -f2); U_MISS=${U_MISS:-0}
     U_PRE=$(echo "$RAW_STATS" | grep '^total.num.prefetch=' | cut -d= -f2); U_PRE=${U_PRE:-0}
     U_TOTAL=$((U_HITS + U_MISS))
 
+    # Calculate Percentages (avoid division by zero)
     if [ "$U_TOTAL" -gt 0 ]; then
         U_PCT_HIT=$(awk "BEGIN {printf \"%.2f\", ($U_HITS / $U_TOTAL) * 100}")
         U_PCT_MISS=$(awk "BEGIN {printf \"%.2f\", ($U_MISS / $U_TOTAL) * 100}")
     fi
-    if [ "$U_HITS" -gt 0 ]; then U_PCT_PRE=$(awk "BEGIN {printf \"%.2f\", ($U_PRE / $U_HITS) * 100}"); fi
+    if [ "$U_HITS" -gt 0 ]; then 
+        U_PCT_PRE=$(awk "BEGIN {printf \"%.2f\", ($U_PRE / $U_HITS) * 100}")
+    fi
 
+    # Memory Stats
     U_MEM_MSG=$(echo "$RAW_STATS" | grep '^mem.cache.message=' | cut -d= -f2); U_MEM_MSG=${U_MEM_MSG:-0}
     U_MEM_RR=$(echo "$RAW_STATS" | grep '^mem.cache.rrset=' | cut -d= -f2); U_MEM_RR=${U_MEM_RR:-0}
+    
+    # Limits (Try to fetch, default to safe values if failed)
     U_LIM_MSG=$(sudo /usr/sbin/unbound-checkconf -o msg-cache-size 2>/dev/null || echo "4194304")
     U_LIM_RR=$(sudo /usr/sbin/unbound-checkconf -o rrset-cache-size 2>/dev/null || echo "8388608")
-    U_PCT_MEM_MSG=$(awk "BEGIN {printf \"%.2f\", ($U_MEM_MSG / $U_LIM_MSG) * 100}")
-    U_PCT_MEM_RR=$(awk "BEGIN {printf \"%.2f\", ($U_MEM_RR / $U_LIM_RR) * 100}")
+    
+    # Calculate Memory Percentages
+    if [ "$U_LIM_MSG" -gt 0 ]; then U_PCT_MEM_MSG=$(awk "BEGIN {printf \"%.2f\", ($U_MEM_MSG / $U_LIM_MSG) * 100}"); fi
+    if [ "$U_LIM_RR" -gt 0 ]; then U_PCT_MEM_RR=$(awk "BEGIN {printf \"%.2f\", ($U_MEM_RR / $U_LIM_RR) * 100}"); fi
 
+    # 6. UCC (Unbound Cache Count) - Heavy Operation
     if [ "$ENABLE_UCC" = true ]; then
         UCC_ERR_TMP=$(mktemp)
+        # Dump cache and count (redirect stderr to temp file)
         eval $(sudo /usr/sbin/unbound-control dump_cache 2> "$UCC_ERR_TMP" | awk '/^msg/ {m++} /^;rrset/ {r++} END {print "UCC_MSG="m+0; print "UCC_RR="r+0}')
+        
         if [ "$DEBUG_MODE" = true ] && [ -s "$UCC_ERR_TMP" ]; then
             echo "[$(date)] UCC dump error:" >> "$DEBUG_LOG"; cat "$UCC_ERR_TMP" >> "$DEBUG_LOG"
         fi
         rm -f "$UCC_ERR_TMP"
+        # Ensure variables are numbers
         UCC_MSG=${UCC_MSG:-0}; UCC_RR=${UCC_RR:-0}
     fi
 }

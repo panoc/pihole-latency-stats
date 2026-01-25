@@ -22,24 +22,24 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 # ==============================================================================
 
-# --- VERSION TRACKING ---
-VERSION="v3.6"
 
-# --- CONFIGURATION: URLs (Stable Release Links) ---
+# --- VERSION TRACKING ---
+VERSION="v4.0"
+
+# --- CONFIGURATION: URLs ---
 BASE_URL="https://github.com/panoc/pihole-latency-stats/releases/latest/download"
+# BASE_URL="https://raw.githubusercontent.com/panoc/pihole-latency-stats/refs/heads/main/phls_assets/test36"
 
 URL_SCRIPT="$BASE_URL/pihole_stats.sh"
 URL_VERSION="$BASE_URL/version"
-URL_CRON_MAKER="$BASE_URL/phls_cron_maker.sh"
+URL_CRON_MAKER="$BASE_URL/cronmaker.sh"
 
 URL_DASH="$BASE_URL/dash.html"
 URL_FAVICON="$BASE_URL/favicon.png"
-
-# Remote Dependencies
 URL_BOOTSTRAP="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
 URL_CHARTJS="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"
 
-# --- DETECT REAL USER (Sudo Handling) ---
+# --- DETECT REAL USER ---
 if [ -n "$SUDO_USER" ]; then
     REAL_USER="$SUDO_USER"
     REAL_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
@@ -48,17 +48,21 @@ else
     REAL_HOME="$HOME"
 fi
 
-# --- PATHS & FILES ---
+# --- DEFAULTS ---
 DEFAULT_INSTALL_DIR="$REAL_HOME/phls"
 DEFAULT_DASH_DIR="/var/www/html/admin/img/dash"
 STATE_FILE=".phls_install.conf"
 MANIFEST_FILE=".phls_file_list"
 
-# Get directory where this script is running
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
-CURRENT_SCRIPT_NAME=$(basename "$0")
+# Global Variables
+FINAL_INSTALL_DIR="$DEFAULT_INSTALL_DIR"
+FINAL_DASH_DIR="$DEFAULT_DASH_DIR"
+DO_INSTALL_CORE=false
+DO_INSTALL_DASH=false
+IS_CLEAN_INSTALL=false
 
-# --- HELPER: Strict Y/N Input (Requires Enter) ---
+# --- HELPER FUNCTIONS ---
+
 ask_yn() {
     local prompt="$1"
     while true; do
@@ -71,7 +75,6 @@ ask_yn() {
     done
 }
 
-# --- HELPER: Fix Permissions ---
 fix_perms() {
     local target="$1"
     if [ -f "$target" ] || [ -d "$target" ]; then
@@ -79,44 +82,30 @@ fix_perms() {
     fi
 }
 
-# --- HELPER: Dependency Check ---
+log_file() {
+    echo "${1}:${2}" >> "$FINAL_INSTALL_DIR/$MANIFEST_FILE"
+}
+
 check_dependencies() {
     echo "🔍 Checking system dependencies..."
     local deps=("sqlite3" "curl" "awk" "sed")
     local missing=()
-
     for dep in "${deps[@]}"; do
-        if ! command -v "$dep" &> /dev/null; then
-            missing+=("$dep")
-        fi
+        if ! command -v "$dep" &> /dev/null; then missing+=("$dep"); fi
     done
 
     if [ ${#missing[@]} -ne 0 ]; then
-        echo "⚠️  The following dependencies are missing: ${missing[*]}"
+        echo "⚠️  Missing: ${missing[*]}"
         if command -v apt-get &> /dev/null; then
-            if ask_yn "Would you like to install them via apt?"; then
+            if ask_yn "Install via apt?"; then
                 apt-get update && apt-get install -y "${missing[@]}"
-            else
-                echo "❌ Please install them manually and run the installer again."
-                exit 1
-            fi
+            else exit 1; fi
         else
-            echo "❌ 'apt' not detected. Please manually install: ${missing[*]}"
-            exit 1
+            echo "❌ Install manually: ${missing[*]}"; exit 1
         fi
-    else
-        echo "✅ All system dependencies are present."
     fi
 }
 
-# --- HELPER: Add to Manifest ---
-log_file() {
-    local tag="$1"
-    local file="$2"
-    echo "${tag}:${file}" >> "$FINAL_INSTALL_DIR/$MANIFEST_FILE"
-}
-
-# --- HELPER: Remove Duplicate Installer ---
 check_and_remove_old_installer() {
     local target_path="$1"
     local target_file="$target_path/install_phls.sh"
@@ -125,166 +114,136 @@ check_and_remove_old_installer() {
     fi
 }
 
-# ==============================================================================
-#                               INSTALLATION LOGIC
-# ==============================================================================
+# --- INSTALLATION MODULES ---
 
-if [ "$EUID" -ne 0 ]; then
-    echo "❌ Please run as root (sudo)."
-    exit 1
+create_uninstaller() {
+    UNINSTALLER_PATH="$FINAL_INSTALL_DIR/phls_uninstall.sh"
+    cat << 'EOF' > "$UNINSTALLER_PATH"
+#!/bin/bash
+# PHLS Uninstaller
+if [ "$EUID" -ne 0 ]; then echo "❌ Please run as root (sudo)."; exit 1; fi
+
+INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
+STATE_FILE="$INSTALL_DIR/.phls_install.conf"
+REMOVE_DASH_PATH=""
+REMOVE_INSTALL_PATH="$INSTALL_DIR"
+
+if [ -f "$STATE_FILE" ]; then
+    source "$STATE_FILE"
+    [ -n "$DASH_PATH" ] && REMOVE_DASH_PATH="$DASH_PATH"
+    [ -n "$INSTALL_PATH" ] && REMOVE_INSTALL_PATH="$INSTALL_PATH"
 fi
-
-check_dependencies
 
 echo "========================================"
-echo "   Pi-hole Latency Stats Installer $VERSION"
+echo "   Pi-hole Latency Stats Uninstaller"
 echo "========================================"
+echo "Permanently removing from: $REMOVE_INSTALL_PATH"
+[ -n "$REMOVE_DASH_PATH" ] && echo "Removing Dashboard: $REMOVE_DASH_PATH"
+echo ""
+read -p "Are you sure? [y/N]: " -r confirm
+if [[ ! "$confirm" =~ ^[Yy]$ ]]; then echo "Aborted."; exit 0; fi
 
-check_and_remove_old_installer "$DEFAULT_INSTALL_DIR"
+echo "🧹 Removing Cron Jobs..."
+crontab -l 2>/dev/null | grep -v "# PHLS-ID:" | crontab -
 
-if ! ask_yn "This will install Pi-hole Latency Stats. Continue?"; then
-    echo "Aborted."
-    exit 0
+if [ -n "$REMOVE_DASH_PATH" ] && [ -d "$REMOVE_DASH_PATH" ]; then
+    echo "🗑️  Removing Dashboard Directory..."
+    rm -rf "$REMOVE_DASH_PATH"
 fi
 
-# --- 1. DETERMINE PATHS ---
-INSTALL_DASHBOARD=false
-FINAL_INSTALL_DIR="$DEFAULT_INSTALL_DIR"
+echo "🗑️  Removing PHLS Directory..."
+rm -rf "$REMOVE_INSTALL_PATH"
+echo "✅ Done."
+EOF
+    chmod +x "$UNINSTALLER_PATH"
+    fix_perms "$UNINSTALLER_PATH"
+}
 
-if ask_yn "Do you want to install Pi-hole Latency Stats Dashboard?"; then
-    INSTALL_DASHBOARD=true
-    if ask_yn "Do you want to install script to custom path?"; then
-        read -e -p "Enter path: " USER_PATH
-        if [ -n "$USER_PATH" ]; then
-            FINAL_INSTALL_DIR="${USER_PATH%/}"
-            check_and_remove_old_installer "$FINAL_INSTALL_DIR"
+install_core() {
+    # 1. Path Confirmation (Only on clean install)
+    if [ "$IS_CLEAN_INSTALL" = true ]; then
+        if ask_yn "Install Core Script to custom path?"; then
+            read -e -p "Enter path: " USER_PATH
+            [ -n "$USER_PATH" ] && FINAL_INSTALL_DIR="${USER_PATH%/}"
         fi
     fi
-else
-    if ask_yn "Do you want to install to custom path?"; then
-        read -e -p "Enter path: " USER_PATH
-        if [ -n "$USER_PATH" ]; then
-            FINAL_INSTALL_DIR="${USER_PATH%/}"
-            check_and_remove_old_installer "$FINAL_INSTALL_DIR"
-        fi
-    fi
-fi
 
-if [ ! -d "$FINAL_INSTALL_DIR" ]; then mkdir -p "$FINAL_INSTALL_DIR"; fi
-fix_perms "$FINAL_INSTALL_DIR"
+    if [ ! -d "$FINAL_INSTALL_DIR" ]; then mkdir -p "$FINAL_INSTALL_DIR"; fi
+    fix_perms "$FINAL_INSTALL_DIR"
+    check_and_remove_old_installer "$FINAL_INSTALL_DIR"
 
-# --- 2. OVERWRITE & CLEAN INSTALL CHECK ---
-if [ -f "$FINAL_INSTALL_DIR/pihole_stats.sh" ] || [ -f "$FINAL_INSTALL_DIR/pihole_stats.conf" ]; then
-    echo ""
-    echo -e "\033[1;33m⚠️  An existing installation was found in $FINAL_INSTALL_DIR\033[0m"
-    if ! ask_yn "Do you want to overwrite it?"; then
-        echo "Aborted."
-        exit 0
-    fi
-    
-    echo ""
-    if ask_yn "Do you want to perform a Clean Install (Reset configuration to defaults)?"; then
-        echo "🧹 Clean Install selected. Removing old configuration..."
+    # Reset Config if Clean Install
+    if [ "$IS_CLEAN_INSTALL" = true ]; then
+        echo "🧹 Cleaning old configuration..."
         rm -f "$FINAL_INSTALL_DIR/pihole_stats.conf"
-    else
-        echo "🔄 Update Mode selected. Existing configuration will be preserved."
+        rm -rf "$FINAL_INSTALL_DIR/cron"
+        # Wipe CRON
+        crontab -l 2>/dev/null | grep -v "# PHLS-ID:" | crontab -
     fi
-fi
 
-# Initialize Manifest
-echo "# PHLS Installed Files List" > "$FINAL_INSTALL_DIR/$MANIFEST_FILE"
-fix_perms "$FINAL_INSTALL_DIR/$MANIFEST_FILE"
+    # Initialize Manifest
+    echo "# PHLS Installed Files List" > "$FINAL_INSTALL_DIR/$MANIFEST_FILE"
+    fix_perms "$FINAL_INSTALL_DIR/$MANIFEST_FILE"
 
-# --- 3. INSTALL MAIN SCRIPT & UTILS ---
-echo "⬇️  Downloading Core Files..."
+    echo "⬇️  Downloading Core Files..."
+    
+    # Download Core
+    curl -sL "$URL_SCRIPT" -o "$FINAL_INSTALL_DIR/pihole_stats.sh"
+    chmod +x "$FINAL_INSTALL_DIR/pihole_stats.sh"
+    fix_perms "$FINAL_INSTALL_DIR/pihole_stats.sh"
+    log_file "SCRIPT" "$FINAL_INSTALL_DIR/pihole_stats.sh"
 
-# 3a. Main Script
-curl -sL "$URL_SCRIPT" -o "$FINAL_INSTALL_DIR/pihole_stats.sh"
-[ ! -s "$FINAL_INSTALL_DIR/pihole_stats.sh" ] && { echo "❌ Download failed (Script)."; exit 1; }
-chmod +x "$FINAL_INSTALL_DIR/pihole_stats.sh"
-fix_perms "$FINAL_INSTALL_DIR/pihole_stats.sh"
-log_file "SCRIPT" "$FINAL_INSTALL_DIR/pihole_stats.sh"
+    # Download Version
+    curl -sL "$URL_VERSION" -o "$FINAL_INSTALL_DIR/version"
+    fix_perms "$FINAL_INSTALL_DIR/version"
+    log_file "SCRIPT" "$FINAL_INSTALL_DIR/version"
 
-# 3b. Version File
-curl -sL "$URL_VERSION" -o "$FINAL_INSTALL_DIR/version"
-fix_perms "$FINAL_INSTALL_DIR/version"
-log_file "SCRIPT" "$FINAL_INSTALL_DIR/version"
+    # Download Cron Maker
+    CRON_DIR="$FINAL_INSTALL_DIR/cron"
+    mkdir -p "$CRON_DIR"
+    curl -sL "$URL_CRON_MAKER" -o "$CRON_DIR/cronmaker.sh"
+    chmod +x "$CRON_DIR/cronmaker.sh"
+    fix_perms "$CRON_DIR/cronmaker.sh"
+    log_file "SCRIPT" "$CRON_DIR/cronmaker.sh"
 
-# 3c. Cron Maker
-curl -sL "$URL_CRON_MAKER" -o "$FINAL_INSTALL_DIR/phls_cron_maker.sh"
-chmod +x "$FINAL_INSTALL_DIR/phls_cron_maker.sh"
-fix_perms "$FINAL_INSTALL_DIR/phls_cron_maker.sh"
-log_file "SCRIPT" "$FINAL_INSTALL_DIR/phls_cron_maker.sh"
-
-echo "✅ Core files installed."
-
-echo "⚙️  Updating/Generating configuration..."
-sudo -u "$REAL_USER" bash "$FINAL_INSTALL_DIR/pihole_stats.sh" -mc "$FINAL_INSTALL_DIR/pihole_stats.conf" > /dev/null 2>&1
-if [ -f "$FINAL_INSTALL_DIR/pihole_stats.conf" ]; then
-    chown "$REAL_USER":"$(id -gn "$REAL_USER")" "$FINAL_INSTALL_DIR/pihole_stats.conf"
-fi
-
-# --- 4. INSTALL DASHBOARD (Optional) ---
-DASH_INSTALLED_PATH=""
-if [ "$INSTALL_DASHBOARD" = true ]; then
-    echo "----------------------------------------"
-    echo "Installing Dashboard..."
-    [ ! -d "$DEFAULT_DASH_DIR" ] && { mkdir -p "$DEFAULT_DASH_DIR"; chown www-data:www-data "$DEFAULT_DASH_DIR"; chmod 775 "$DEFAULT_DASH_DIR"; }
-
-    dl_and_log() {
-        curl -sL "$1" -o "$2"
-        log_file "DASH" "$2"
-    }
-
-    dl_and_log "$URL_DASH" "$DEFAULT_DASH_DIR/dash.html"
-    # UPDATED: Download common version file to dashboard dir
-    dl_and_log "$URL_VERSION" "$DEFAULT_DASH_DIR/version"
-    dl_and_log "$URL_FAVICON" "$DEFAULT_DASH_DIR/favicon.png"
-    dl_and_log "$URL_BOOTSTRAP" "$DEFAULT_DASH_DIR/bootstrap.min.css"
-    dl_and_log "$URL_CHARTJS" "$DEFAULT_DASH_DIR/chart.js"
-
-    chown -R www-data:www-data "$DEFAULT_DASH_DIR"
-    chmod -R 755 "$DEFAULT_DASH_DIR"
-    DASH_INSTALLED_PATH="$DEFAULT_DASH_DIR"
-    echo "✅ Dashboard installed to: $DEFAULT_DASH_DIR"
-
-    if ask_yn "Do you want to save json log file to dashboard directory?"; then
-        CONF_FILE="$FINAL_INSTALL_DIR/pihole_stats.conf"
-        ESCAPED_PATH=$(echo "$DEFAULT_DASH_DIR" | sed 's/\//\\\//g')
-        sed -i "s/^SAVE_DIR_JSON=\"\"/SAVE_DIR_JSON=\"$ESCAPED_PATH\"/" "$CONF_FILE"
-        sed -i "s/^JSON_NAME=\"\"/JSON_NAME=\"dash_default.json\"/" "$CONF_FILE"
-        echo "✅ Configuration updated."
-        
-        echo "📊 Priming dashboard data..."
-        sudo "$FINAL_INSTALL_DIR/pihole_stats.sh" -j > /dev/null
+    # Generate Config if missing
+    if [ ! -f "$FINAL_INSTALL_DIR/pihole_stats.conf" ]; then
+        echo "⚙️  Generating default configuration..."
+        sudo -u "$REAL_USER" bash "$FINAL_INSTALL_DIR/pihole_stats.sh" -mc "$FINAL_INSTALL_DIR/pihole_stats.conf" > /dev/null 2>&1
+        if [ -f "$FINAL_INSTALL_DIR/pihole_stats.conf" ]; then
+            chown "$REAL_USER":"$(id -gn "$REAL_USER")" "$FINAL_INSTALL_DIR/pihole_stats.conf"
+        fi
     fi
-fi
 
-# --- 5. AUTO-UPDATE CHECK SETUP ---
-if ask_yn "Enable Auto-Update Check? (Checks for new versions every 3 days)"; then
+    create_uninstaller
+
+    # --- AUTO UPDATER SETUP ---
+    # Only ask if clean install OR if the updater script is missing
+    if [ "$IS_CLEAN_INSTALL" = true ] || [ ! -f "$FINAL_INSTALL_DIR/phls_version_check.sh" ]; then
+        if ask_yn "Enable Auto-Update Check? (Checks every 3 days)"; then
+            setup_auto_update
+        fi
+    fi
+}
+
+setup_auto_update() {
     echo "----------------------------------------"
     echo "Configuring Auto-Update..."
     UPDATER_SCRIPT="$FINAL_INSTALL_DIR/phls_version_check.sh"
     
+    # Use global FINAL_DASH_DIR variable
     TARGET_DASH_DIR=""
-    [ -n "$DASH_INSTALLED_PATH" ] && TARGET_DASH_DIR="$DASH_INSTALLED_PATH"
+    [ "$DO_INSTALL_DASH" = true ] && TARGET_DASH_DIR="$FINAL_DASH_DIR"
 
-    # Create the updater script
-    # UPDATED: Downloads version once, then copies to Dash dir if needed
     cat <<EOF > "$UPDATER_SCRIPT"
 #!/bin/bash
 # PHLS Version Auto-Checker
-# Downloads the unified 'version' file to trigger notifications.
-
 INSTALL_DIR="$FINAL_INSTALL_DIR"
 DASH_DIR="$TARGET_DASH_DIR"
 URL_VERSION="$URL_VERSION"
 
-# 1. Download to Installation Directory
 if [ -d "\$INSTALL_DIR" ]; then
     curl -sL "\$URL_VERSION" -o "\$INSTALL_DIR/version" 2>/dev/null
-    
-    # 2. Copy to Dashboard Directory (if installed)
     if [ -n "\$DASH_DIR" ] && [ -d "\$DASH_DIR" ] && [ -f "\$INSTALL_DIR/version" ]; then
         cp "\$INSTALL_DIR/version" "\$DASH_DIR/version"
         chown www-data:www-data "\$DASH_DIR/version" 2>/dev/null
@@ -292,134 +251,189 @@ if [ -d "\$INSTALL_DIR" ]; then
     fi
 fi
 EOF
-    
     chmod +x "$UPDATER_SCRIPT"
     fix_perms "$UPDATER_SCRIPT"
     log_file "SCRIPT" "$UPDATER_SCRIPT"
+
+    REQUIRED_PATH="export PATH=\$PATH:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin;"
+    CRON_CMD="$REQUIRED_PATH $UPDATER_SCRIPT # PHLS-ID:updater"
     
-    CRON_CMD="$UPDATER_SCRIPT # PHLS-ID:updater"
-    CRON_SCHED="0 0 */3 * *" 
-    
-    EXISTING_CRON=$(crontab -l 2>/dev/null)
-    CRON_PATH="PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin"
-    
-    if echo "$EXISTING_CRON" | grep -q "^PATH="; then
-        FINAL_CRON=$(echo -e "$EXISTING_CRON\n$CRON_SCHED $CRON_CMD")
-    else
-        FINAL_CRON=$(echo -e "$CRON_PATH\n$EXISTING_CRON\n$CRON_SCHED $CRON_CMD")
+    # Update Cron
+    EXISTING_CRON=$(crontab -l 2>/dev/null | grep -v "# PHLS-ID:updater")
+    echo -e "$EXISTING_CRON\n0 0 */3 * * $CRON_CMD" | crontab -
+    echo "✅ Auto-Update scheduled."
+}
+
+install_dashboard() {
+    if [ "$IS_CLEAN_INSTALL" = true ]; then
+        if ask_yn "Install Dashboard to custom path?"; then
+            read -e -p "Enter path: " USER_PATH
+            [ -n "$USER_PATH" ] && FINAL_DASH_DIR="${USER_PATH%/}"
+        fi
     fi
+
+    echo "⬇️  Downloading Dashboard to $FINAL_DASH_DIR..."
+    [ ! -d "$FINAL_DASH_DIR" ] && { mkdir -p "$FINAL_DASH_DIR"; chown www-data:www-data "$FINAL_DASH_DIR"; chmod 775 "$FINAL_DASH_DIR"; }
+
+    dl_dash() { curl -sL "$1" -o "$2"; log_file "DASH" "$2"; }
+
+    dl_dash "$URL_DASH" "$FINAL_DASH_DIR/dash.html"
+    dl_dash "$URL_VERSION" "$FINAL_DASH_DIR/version"
+    dl_dash "$URL_FAVICON" "$FINAL_DASH_DIR/favicon.png"
+    dl_dash "$URL_BOOTSTRAP" "$FINAL_DASH_DIR/bootstrap.min.css"
+    dl_dash "$URL_CHARTJS" "$FINAL_DASH_DIR/chart.js"
+
+    chown -R www-data:www-data "$FINAL_DASH_DIR"
+    chmod -R 755 "$FINAL_DASH_DIR"
+    echo "✅ Dashboard Updated."
+
+    # --- SAFETY CHECK: Priming Logic ---
+    # We check if 'dash_default.json' or 'dash_default.h.json' exists.
+    # If they do, we warn the user that running the update might touch them.
     
-    echo "$FINAL_CRON" | crontab -
-    echo "✅ Auto-Update scheduled (Every 3 days)."
+    DATA_EXISTS=false
+    if [ -f "$FINAL_DASH_DIR/dash_default.json" ] || [ -f "$FINAL_DASH_DIR/dash_default.h.json" ]; then
+        DATA_EXISTS=true
+    fi
+
+    if [ "$DATA_EXISTS" = true ]; then
+        echo ""
+        echo -e "\033[1;33m⚠️  EXISTING DATA DETECTED IN DASHBOARD FOLDER\033[0m"
+        echo "   Running an immediate update (Prime) typically appends to history,"
+        echo "   but running a new script version against old data carries a small risk."
+        echo ""
+        if ask_yn "Do you want to run an update check now? (Say NO to preserve data as-is)"; then
+            echo "📊 Updating dashboard data..."
+            sudo "$FINAL_INSTALL_DIR/pihole_stats.sh" -dash "default" > /dev/null
+            echo "✅ Data updated."
+        else
+            echo "ℹ️  Skipping data update to protect existing history."
+        fi
+    
+    # If clean install or no data found, proceed normally
+    elif [ "$IS_CLEAN_INSTALL" = true ] || ask_yn "Repopulate/Prime dashboard data now?"; then
+        echo "📊 Priming dashboard..."
+        sudo "$FINAL_INSTALL_DIR/pihole_stats.sh" -dash "default" > /dev/null
+        echo "✅ Data initialized."
+    fi
+}
+
+# ==============================================================================
+#                               MAIN LOGIC
+# ==============================================================================
+
+if [ "$EUID" -ne 0 ]; then echo "❌ Please run as root (sudo)."; exit 1; fi
+check_dependencies
+
+echo "========================================"
+echo "   Pi-hole Latency Stats Installer $VERSION"
+echo "========================================"
+
+# --- 1. DETECTION PHASE ---
+DETECTED_CORE=false
+DETECTED_DASH=false
+
+# Load state
+if [ -f "$DEFAULT_INSTALL_DIR/$STATE_FILE" ]; then
+    source "$DEFAULT_INSTALL_DIR/$STATE_FILE"
+    [ -n "$INSTALL_PATH" ] && FINAL_INSTALL_DIR="$INSTALL_PATH"
+    [ -n "$DASH_PATH" ] && FINAL_DASH_DIR="$DASH_PATH"
 fi
 
-# --- 6. SAVE INSTALL STATE ---
+[ -f "$FINAL_INSTALL_DIR/pihole_stats.sh" ] && DETECTED_CORE=true
+[ -f "$FINAL_DASH_DIR/dash.html" ] && DETECTED_DASH=true
+
+# --- 2. MENU PHASE ---
+
+if [ "$DETECTED_CORE" = true ] || [ "$DETECTED_DASH" = true ]; then
+    echo -e "\033[1;32m✅ Existing Installation Detected.\033[0m"
+    echo "   Core: $FINAL_INSTALL_DIR"
+    echo "   Dash: $FINAL_DASH_DIR"
+    echo ""
+    echo "Options:"
+    echo "   1) Upgrade Core Script Only"
+    echo "   2) Upgrade Dashboard Only"
+    echo "   3) Upgrade EVERYTHING (Preserve Config)"
+    echo "   4) CLEAN INSTALL (Wipe Configs, Cron & Start Over)"
+    echo "   5) Cancel"
+    echo ""
+    read -r -p "Select [1-5]: " OPTION
+
+    case $OPTION in
+        1) DO_INSTALL_CORE=true ;;
+        2) DO_INSTALL_DASH=true ;;
+        3) DO_INSTALL_CORE=true; DO_INSTALL_DASH=true ;;
+        4) DO_INSTALL_CORE=true; DO_INSTALL_DASH=true; IS_CLEAN_INSTALL=true ;;
+        *) echo "Aborted."; exit 0 ;;
+    esac
+else
+    # New Install
+    echo "No installation found."
+    if ask_yn "Install Core Scripts?"; then
+        DO_INSTALL_CORE=true
+        IS_CLEAN_INSTALL=true # Treat new install like clean install for logic
+    else
+        echo "Aborted."; exit 0
+    fi
+    if ask_yn "Install Dashboard?"; then DO_INSTALL_DASH=true; fi
+fi
+
+# --- 3. EXECUTION PHASE ---
+
+# A. Install Core
+if [ "$DO_INSTALL_CORE" = true ]; then
+    install_core
+else
+    echo "ℹ️  Skipping Core update."
+fi
+
+# B. Install Dashboard
+if [ "$DO_INSTALL_DASH" = true ]; then
+    install_dashboard
+else
+    echo "ℹ️  Skipping Dashboard update."
+fi
+
+# C. Save State
 cat <<EOF > "$FINAL_INSTALL_DIR/$STATE_FILE"
 # PHLS Installation Record
 INSTALL_PATH="$FINAL_INSTALL_DIR"
-DASH_PATH="$DASH_INSTALLED_PATH"
+DASH_PATH="$([ "$DO_INSTALL_DASH" = true ] || [ "$DETECTED_DASH" = true ] && echo "$FINAL_DASH_DIR" || echo "")"
 INSTALL_DATE="$(date)"
 VERSION="$VERSION"
 EOF
 fix_perms "$FINAL_INSTALL_DIR/$STATE_FILE"
 
-log_file "SCRIPT" "$FINAL_INSTALL_DIR/$STATE_FILE"
-log_file "SCRIPT" "$FINAL_INSTALL_DIR/$MANIFEST_FILE"
-
-# --- 7. GENERATE UNINSTALLER ---
-UNINSTALLER_PATH="$FINAL_INSTALL_DIR/phls_uninstall.sh"
-cat << 'EOF' > "$UNINSTALLER_PATH"
-#!/bin/bash
-# ==============================================================================
-# Script:      Pi-hole Latency Stats Uninstaller
-# Description: Completely removes PHLS, Dashboard, and Cron jobs.
-# ==============================================================================
-
-# Ensure Root
-if [ "$EUID" -ne 0 ]; then
-    echo "❌ Please run as root (sudo)."
-    exit 1
-fi
-
-INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
-STATE_FILE="$INSTALL_DIR/.phls_install.conf"
-
-REMOVE_DASH_PATH=""
-REMOVE_INSTALL_PATH="$INSTALL_DIR"
-
-if [ -f "$STATE_FILE" ]; then
-    source "$STATE_FILE"
-    if [ -n "$DASH_PATH" ]; then REMOVE_DASH_PATH="$DASH_PATH"; fi
-    if [ -n "$INSTALL_PATH" ]; then REMOVE_INSTALL_PATH="$INSTALL_PATH"; fi
-fi
+# --- 4. FINALE (Port Detection & Cron Maker) ---
 
 echo "========================================"
-echo "   Pi-hole Latency Stats Uninstaller"
+echo "   Operation Complete!"
 echo "========================================"
-echo "This will PERMANENTLY remove:"
-echo " - Main Script & Config ($REMOVE_INSTALL_PATH)"
-[ -n "$REMOVE_DASH_PATH" ] && echo " - Dashboard Files ($REMOVE_DASH_PATH)"
-echo " - Auto-Update Checker (if enabled)"
-echo " - All Cron Jobs (tagged with # PHLS-ID)"
-echo ""
-read -p "Are you sure you want to proceed? [y/N]: " -r confirm
-echo ""
-if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-    echo "Aborted."
-    exit 0
-fi
 
-echo "🧹 Removing Cron Jobs..."
-crontab -l 2>/dev/null | grep -v "# PHLS-ID:" | crontab -
-
-if [ -n "$REMOVE_DASH_PATH" ] && [ -d "$REMOVE_DASH_PATH" ]; then
-    echo "🗑️  Removing Dashboard Directory: $REMOVE_DASH_PATH"
-    rm -rf "$REMOVE_DASH_PATH"
-fi
-
-echo "🗑️  Removing PHLS Directory: $REMOVE_INSTALL_PATH"
-rm -rf "$REMOVE_INSTALL_PATH"
-
-echo "✅ Uninstallation Complete."
-EOF
-
-chmod +x "$UNINSTALLER_PATH"
-fix_perms "$UNINSTALLER_PATH"
-
-# --- 8. FINISH ---
-echo "========================================"
-echo "   Installation Complete!"
-echo "========================================"
-echo "Script Location: $FINAL_INSTALL_DIR/pihole_stats.sh"
-echo "Uninstaller:     $FINAL_INSTALL_DIR/phls_uninstall.sh"
-echo ""
-echo "To run:"
-echo -e "  \033[1;32msudo $FINAL_INSTALL_DIR/pihole_stats.sh\033[0m"
-echo ""
-
-if [ "$INSTALL_DASHBOARD" = true ]; then
+if [ "$DO_INSTALL_DASH" = true ]; then
     PIHOLE_IP=$(hostname -I | awk '{print $1}')
-    PORT=$(grep "webserver.port" /etc/pihole/pihole.toml 2>/dev/null | cut -d'=' -f2 | tr -d ' "')
-    [ -z "$PORT" ] && PORT="80"
+    PORT="80"
+    if [ -f "/etc/pihole/pihole.toml" ]; then
+        DETECTED=$(awk '/^[ \t]*\[.*webserver.*\]/{f=1;next}/^[ \t]*\[/{f=0}f&&/^[ \t]*port[ \t]*=/{gsub(/"/,"",$0);split($0,a,"=");split(a[2],b,",");gsub(/[^0-9]/,"",b[1]);print b[1];exit}' /etc/pihole/pihole.toml)
+        [[ "$DETECTED" =~ ^[0-9]+$ ]] && PORT="$DETECTED"
+    fi
     DISPLAY_URL="$PIHOLE_IP"
     [ "$PORT" != "80" ] && DISPLAY_URL="$PIHOLE_IP:$PORT"
-
+    
     echo "Dashboard URL:"
     echo -e "  \033[1;36mhttp://$DISPLAY_URL/admin/img/dash/dash.html?p=default\033[0m"
-    echo ""
+fi
+
+if [ "$DO_INSTALL_CORE" = true ]; then
+    echo "Core Script: $FINAL_INSTALL_DIR/pihole_stats.sh"
+    echo "Cron Maker:  $FINAL_INSTALL_DIR/cron/cronmaker.sh"
     
-    if ask_yn "Do you want to create a Cron Job for the Dashboard now?"; then
-        echo "🧹 Cleaning up installer..."
-        rm -- "$0"
-        echo "🚀 Launching Cron Job Maker..."
-        echo "----------------------------------------"
-        exec "$FINAL_INSTALL_DIR/phls_cron_maker.sh"
+    if [ "$IS_CLEAN_INSTALL" = true ] && ask_yn "Launch Cron Maker now?"; then
+        rm -- "$0" # Cleanup self
+        exec "$FINAL_INSTALL_DIR/cron/cronmaker.sh"
     fi
 fi
 
-echo "To uninstall later, run:"
-echo -e "  \033[1;33msudo $FINAL_INSTALL_DIR/phls_uninstall.sh\033[0m"
 echo ""
-
-echo "🧹 Cleaning up installer from download location..."
-rm -- "$0"
+echo "🧹 Cleaning up installer..."
+rm -- "$0" 2>/dev/null
