@@ -6,10 +6,10 @@
 
 /* ==========================================================================
    DASHBOARD V4 THEME VARIABLES
-   (Derived from your dash.html)
    ========================================================================== */
 :root {
   --dash-bg:       linear-gradient(120deg, #420808, #1a1a1a);
+   --dash-bga:       linear-gradient(180deg, #913E3E, #1a1a1a);
   --dash-card:     #1f2226;
   --dash-border:   #343a40;
   --dash-text:     #e0e0e0;
@@ -24,27 +24,19 @@
 }
 
 /* ==========================================================================
-   1. GLOBAL PAGE STYLES (Dark Mode Override)
+   1. GLOBAL PAGE STYLES
    ========================================================================== */
 
-/* Apply the Dashboard Gradient to the whole page background */
-/*body {
-  background-image: var(--dash-bg);
+/* FIX: Restored Dark Background so light text is visible */
+body {
+  background-image: var(--dash-bga);
   background-color: #1a1a1a; 
   background-attachment: fixed;
   background-size: cover;
   color: var(--dash-text); 
 }
-*/
- body {
- /* background-color: #fcf7f2; */
- /* background-color: #FFFBF7; */
-  background-color: #FFFDFC; 
-   background-attachment: fixed;
-   background-size: cover;
-    color: var(--dash-text); 
-}
-/* Links - Use Dashboard Blue instead of Red to match the interface */
+
+/* Links */
 a {
   color: var(--acc-blue);
   text-decoration: none;
@@ -58,11 +50,11 @@ a:hover, .main-content a:hover {
 }
 
 /* ==========================================================================
-   2. HEADER & LOGO (Your Custom Settings Preserved)
+   2. HEADER & LOGO
    ========================================================================== */
 
 .page-header {
-  /* Keep your gradient matches the body, making it seamless */
+  /* Combined your duplicate header rules here */
   background-color: #1e2327; 
   background-image: linear-gradient(120deg, #420808, #1a1a1a);
   
@@ -71,7 +63,12 @@ a:hover, .main-content a:hover {
   padding-bottom: 0rem !important;
 }
 
-/* Project Name & Flexbox Centering */
+/* Remove default header buttons */
+.page-header .btn {
+  display: none !important;
+}
+
+/* Project Name */
 .project-name {
   color: #FFFDFC !important; 
   display: flex !important;
@@ -79,7 +76,7 @@ a:hover, .main-content a:hover {
   justify-content: center !important; 
 }
 
-/* Your Logo Icon Logic */
+/* Logo Icon */
 .project-name::before {
   content: "";
   display: block;             
@@ -94,63 +91,60 @@ a:hover, .main-content a:hover {
   top: 2px;
 }
 
+/* FIX: Syntax error fixed here (moved semicolon to the end) */
 .project-tagline {
-  color: #aeb4b9; /* Slightly brighter for readability on dark header */
+  color: #CBD1D6 !important;
 }
 
-/* Header Buttons - Converted to Dark Dashboard Style */
+/* Header Buttons (Custom) */
 .btn {
-  background-color: #343a40 !important; /* Dashboard Button Grey */
-  color: #b0b0b0 !important;            /* Muted Text */
+  background-color: #343a40 !important;
+  color: #b0b0b0 !important;            
   border: 1px solid var(--dash-border) !important;
   transition: all 0.2s;
 }
 
 .btn:hover {
-  background-color: var(--acc-blue) !important; /* Dashboard Blue Hover */
+  background-color: var(--acc-blue) !important;
   color: #fff !important;
   border-color: var(--acc-blue) !important;
 }
 
 /* ==========================================================================
-   3. MAIN CONTENT (The "Card" Look)
+   3. MAIN CONTENT (Card Style)
    ========================================================================== */
 
-/* Turn the main white box into a Dashboard Card */
 .main-content {
-  background-color: var(--dash-card); /* Dark Grey Card */
+  background-color: var(--dash-card);
   color: var(--dash-text);
   
   /* Card Styling */
   box-shadow: 0 4px 15px rgba(0,0,0,0.3);
   border-radius: 6px;
-  border-top: 3px solid var(--acc-blue); /* Distinctive Blue Top Border */
+  border-top: 3px solid var(--acc-blue);
   
-  /* Your Width Adjustment */
+  /* Width & Spacing */
   max-width: 72rem !important;
-  
-  /* Spacing */
   padding: 2rem;
   margin-top: 2rem;
   margin-bottom: 2rem;
 }
 
-/* Headings inside the content */
+/* Headings */
 .main-content h1, 
 .main-content h2, 
 .main-content h3, 
 .main-content h4, 
 .main-content h5, 
 .main-content h6 {
-  color: var(--dash-bright) !important; /* Bright White */
+  color: var(--dash-bright) !important;
   margin-top: 1.5rem;
 }
 
 /* ==========================================================================
-   4. CODE BLOCKS & QUOTES (Dark Theme)
+   4. CODE BLOCKS & QUOTES
    ========================================================================== */
 
-/* Blockquotes - Dashboard Style (Yellow Accent) */
 blockquote {
   border-left: 5px solid var(--acc-yellow) !important;
   background: rgba(255, 255, 255, 0.05);
@@ -162,13 +156,12 @@ blockquote p,
 blockquote ul, 
 blockquote li,
 blockquote strong {
-  color: var(--dash-muted) !important; /* Override your previous black text enforcement */
+  color: var(--dash-muted) !important;
 }
 
-/* Code Blocks - Terminal Style */
 pre, code {
-  background-color: #181a1d !important; /* Very Dark Grey */
-  color: #e6dfdf !important;            /* Bright Text */
+  background-color: #181a1d !important;
+  color: #e6dfdf !important;            
   border: 1px solid var(--dash-border) !important;
   border-radius: 4px;
 }
@@ -192,25 +185,3 @@ th {
 .site-footer-credits {
   color: var(--dash-muted) !important;
 }
-
-/* --- 1. Top Banner Title (Project Name) --- */
-
-/* ==========================================================================
-   REMOVE DEFAULT HEADER BUTTONS
-   ========================================================================== */
-.page-header .btn {
-  display: none !important;
-}
-/* 1. The Big Header Gradient */
-.page-header {
-  background-color: #1e2327; 
-  background-image: linear-gradient(120deg, #420808, #1a1a1a);
-}
-
-/* 3. The Tagline Text */
-.project-tagline {
-  color: #CBD1D6; !important;
-}
-
-
-
