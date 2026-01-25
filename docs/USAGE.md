@@ -13,28 +13,29 @@
 1. **[Introduction & Architecture](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#1-introduction--architecture)**
 2. **[Directory Structure](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#2-directory-structure)**
 3. **[The Core Script (`pihole_stats.sh`) - Deep Dive](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#3-the-core-script-pihole_statssh---deep-dive)**
-* [CLI Arguments & Flags](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#cli-arguments--flags)
-* [Output Modes & Formats](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#output-modes--formats)
-* [Unbound Integration & Cache Counting](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#unbound-integration--cache-counting)
-* [Safety Mechanisms (Locking & Snapshots)](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#safety-mechanisms-locking--snapshots)
+   * [CLI Arguments & Flags](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#cli-arguments--flags)
+   * [Output Modes & Formats](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#output-modes--formats)
+   * [Unbound Integration & Cache Counting](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#unbound-integration--cache-counting)
+   * [Safety Mechanisms (Locking & Snapshots)](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#safety-mechanisms-locking--snapshots)
 
 
 4. **[The Profile System & Automation](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#4-the-profile-system--automation)**
-* [Concept: What is a Profile?](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#concept-what-is-a-profile)
-* [Using the Cron Maker (TUI)](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#using-the-cron-maker-tui)
-* [MANUAL Profile Configuration (Advanced)](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#manual-profile-configuration-advanced)
+   * [Concept: What is a Profile?](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#concept-what-is-a-profile)
+   * [Using the Cron Maker (TUI)](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#using-the-cron-maker-tui)
+   * [MANUAL Profile Configuration (Advanced)](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#manual-profile-configuration-advanced)
 
 
 5. **[Configuration File Anatomy (`pihole_stats.conf`)](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#5-configuration-file-anatomy-pihole_statsconf)**
 6. **[The Dashboard v2.0](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#6-the-dashboard-v20)**
-* [Access & URL Parameters](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#access--url-parameters)
-* [Metrics & Visualization](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#metrics--visualization)
-* [Gap Filling & Stale Data Logic](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#gap-filling--stale-data-logic)
+   * [Access & URL Parameters](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#access--url-parameters)
+   * [Metrics & Visualization](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#metrics--visualization)
+   * [Gap Filling & Stale Data Logic](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#gap-filling--stale-data-logic)
 
 
 7. **[Metric Definitions (The Analytics)](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#7-metric-definitions-the-analytics)**
 8. **[Update Notifications & Maintenance](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#8-Update-Notifications-&-Maintenance)**
-   *[The Unistaller](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#%EF%B8%8F-the-uninstaller)
+   * [The Unistaller](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#%EF%B8%8F-the-uninstaller)
+   
 10. **[Troubleshooting & Debugging](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#9-troubleshooting--debugging)**
 
 ---
