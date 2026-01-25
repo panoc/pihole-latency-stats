@@ -6,8 +6,6 @@ layout: default
 
 # Pi-hole Latency Stats
 
-<div align="center">
-
 [![GitHub release (latest by date)](https://img.shields.io/github/v/release/panoc/pihole-latency-stats?style=for-the-badge&color=dd4b39)](https://github.com/panoc/pihole-latency-stats/releases)
 [![License](https://img.shields.io/github/license/panoc/pihole-latency-stats?style=for-the-badge&color=3c8dbc)](LICENSE)
 [![GitHub main commit activity](https://img.shields.io/github/commit-activity/m/panoc/pihole-latency-stats?style=for-the-badge&color=f39c12)](https://github.com/panoc/pihole-latency-stats/commits/main)
@@ -19,7 +17,7 @@ layout: default
 [View on GitHub](https://github.com/panoc/pihole-latency-stats){: .btn } [Download Latest](https://github.com/panoc/pihole-latency-stats/releases/latest){: .btn }
 
 </div>
-</div>
+
 
 ---
 
