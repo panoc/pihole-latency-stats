@@ -28,14 +28,20 @@
    ========================================================================== */
 
 /* Apply the Dashboard Gradient to the whole page background */
-body {
+/*body {
   background-image: var(--dash-bg);
   background-color: #1a1a1a; /* Fallback */
   background-attachment: fixed;
   background-size: cover;
   color: var(--dash-text); /* Light text */
 }
-
+*/
+ body {
+ /* background-color: #fcf7f2; */
+ /* background-color: #FFFBF7; */
+  background-color: #FFFDFC; 
+   background-attachment: fixed;
+}
 /* Links - Use Dashboard Blue instead of Red to match the interface */
 a {
   color: var(--acc-blue);
@@ -59,8 +65,8 @@ a:hover, .main-content a:hover {
   background-image: linear-gradient(120deg, #420808, #1a1a1a);
   
   /* Your Height Adjustments */
-  padding-top: 2rem !important;
-  padding-bottom: 2rem !important;
+  padding-top: 1rem !important;
+  padding-bottom: 0rem !important;
 }
 
 /* Project Name & Flexbox Centering */
@@ -185,17 +191,7 @@ th {
   color: var(--dash-muted) !important;
 }
 
-/* --- Reduce Header Height --- */
-.page-header {
-
-  padding-top: 1rem !important;
-  padding-bottom: 0rem !important;
-}
-
 /* --- 1. Top Banner Title (Project Name) --- */
-.project-name {
-  color: #FFFDFC !important; 
-}
 
 /* ==========================================================================
    REMOVE DEFAULT HEADER BUTTONS
@@ -209,20 +205,10 @@ th {
   background-image: linear-gradient(120deg, #420808, #1a1a1a);
 }
 
-/* 2. The Title Text (Project Name) */
-.project-name {
-  color: #FFFDFC; 
-}
-
 /* 3. The Tagline Text */
 .project-tagline {
-  color: #CBD1D6; 
+  color: #CBD1D6; !important;
 }
 
 
-   body {
- /* background-color: #fcf7f2; */
- /* background-color: #FFFBF7; */
-  background-color: #FFFDFC; 
-  color: #333333;            
-}
+
