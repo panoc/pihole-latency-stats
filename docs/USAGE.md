@@ -316,43 +316,72 @@ The `pihole_stats.conf` file allows you to set permanent defaults so you don't h
 ```bash
 # ================= PI-HOLE STATS CONFIGURATION =================
 
-# 1. DATABASE PATH
-# Only change this if you moved your Pi-hole installation.
+# ================= PI-HOLE STATS CONFIGURATION =================
+
+# --- Database Location ---
+# Path to your Pi-hole FTL database.
 DBfile="/etc/pihole/pihole-FTL.db"
 
-# 2. OUTPUT DIRECTORIES
-# Defines where files go if you don't specify a path in -f or -j.
-# Required for the Auto-Delete (-rt) feature to work safely.
-SAVE_DIR_TXT="/home/pi/phls/logs"
-SAVE_DIR_JSON="/home/pi/phls/json"
+# --- Output Directories ---
+# Default directories for manual reports (using -j or -f).
+# Leave empty "" to save in the current directory.
+SAVE_DIR_TXT=""
+SAVE_DIR_JSON=""
 
-# 3. DEFAULT FILENAMES
+# --- DEFAULT FILENAMES --- 
 TXT_NAME="stats.txt"
 JSON_NAME="stats.json"
 
-# 4. AUTO-RETENTION
-# Automatically delete files in the SAVE_DIRS older than X days.
-MAX_LOG_AGE="7"
+# --- Dashboard Settings ---
+# Directory where the web dashboard files are stored.
+DASH_DIR="/var/www/html/admin/img/dash"
 
-# 5. UNBOUND BEHAVIOR
-# "auto" (Detect), "true" (Always On), "false" (Always Off)
+# Max entries for history graphs (8640 = 30 days at 5min intervals).
+MAX_HISTORY_ENTRIES="8640"
+
+# --- Auto-Delete ---
+# Delete reports older than X days (leave empty to disable).
+MAX_LOG_AGE=""
+
+# --- Unbound Integration ---
+# auto  : Check if Unbound is running.
+# true  : Always show Unbound stats.
+# false : Never show Unbound stats.
 ENABLE_UNBOUND="auto"
 
-# 6. LATENCY TIERS (The Buckets)
+# --- Visual Layout for CLI ---
+# auto       : Detects terminal width.
+# vertical   : Standard list view.
+# horizontal : Split-pane view.
+LAYOUT="auto"
+
+# --- Default Time Range ---
+# Optional: Set a default lookback period (e.g., "yesterday", "today 00:00").
+# CLI flags like -24h will override this.
+DEFAULT_FROM=""
+DEFAULT_TO=""
+
+# --- HARD ARGUMENTS ---
+# Any flags placed here are injected into the script automatically.
+# This is how Profiles are differentiated (e.g., Profile A has CONFIG_ARGS='-up', Profile B has '-pi').
+CONFIG_ARGS=""
+
+# --- Latency Tiers (Upper Limits in Milliseconds) ---
 # These values (in milliseconds) define the "Tiers" shown in the distribution graph.
 # You can customize these to match your network expectations.
-L01="0.009"  # Tier 1: Cache (Instant)
-L02="0.1"    # Tier 2: LAN
-L03="1"      # Tier 3: Fast Fiber
-L04="10"     # Tier 4: Standard Broadband
-L05="50"     # Tier 5: Slow/Lag
+L01="0.009"
+L02="0.1"
+L03="1"
+L04="10"
+L05="50"
 # ... up to L20 ...
 L10="1000"   # Timeout / Packet Loss
 
-# 7. HARD ARGUMENTS (The "Profile" DNA)
-# Any flags placed here are injected into the script automatically.
-# This is how Profiles are differentiated (e.g., Profile A has CONFIG_ARGS='-up', Profile B has '-pi').
-CONFIG_ARGS='-up -nx -snap'
+# --- Latency Cutoffs ---
+# Ignore queries faster than MIN or slower than MAX (in milliseconds).
+# Useful to exclude cached (0.1ms) or timeouts.
+MIN_LATENCY_CUTOFF=""
+MAX_LATENCY_CUTOFF=""
 
 ```
 
