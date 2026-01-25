@@ -30,10 +30,10 @@
 /* Apply the Dashboard Gradient to the whole page background */
 /*body {
   background-image: var(--dash-bg);
-  background-color: #1a1a1a; /* Fallback */
+  background-color: #1a1a1a; 
   background-attachment: fixed;
   background-size: cover;
-  color: var(--dash-text); /* Light text */
+  color: var(--dash-text); 
 }
 */
  body {
@@ -41,6 +41,8 @@
  /* background-color: #FFFBF7; */
   background-color: #FFFDFC; 
    background-attachment: fixed;
+   background-size: cover;
+    color: var(--dash-text); 
 }
 /* Links - Use Dashboard Blue instead of Red to match the interface */
 a {
