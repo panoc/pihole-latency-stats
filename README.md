@@ -18,21 +18,24 @@ This tool helps you answer: *"Is my DNS slow because of my upstream provider, or
 
 ---
 
-## Features
+## ✨ Key Features
+ **🔍 Latency Analysis**  Calculates **Average**, **Median**, and **P95** latency to spot jitters. 
+ 
+ **📈 Tiered Grouping**  Groups query speeds into "Tiers" (e.g., `<10ms`, `10-50ms`) for easy analysis. 
+ 
+ **🔄 Unbound Integration**  Auto-detects Unbound to report **Cache Hit Ratio**, **Prefetching**, and **RAM Usage**. 
+ 
+ **📸 Snapshot Mode**  Safely copies the database before analysis to prevent `Database Locked` errors.
+ 
+ **🎯 Smart Filtering**  Filter by **Time** (24h, 7d), **Status** (Blocked/Forwarded), or **Domain** (Wildcards supported). 
+ 
+ **🤖 Automation Ready**  Native **JSON output** for Home Assistant, Grafana, or Node-RED integration. 
 
-* **Latency Analysis:** Calculates Average, Median, and 95th Percentile latency.
-* **Browser Dashboard:** A modern, responsive interface powered by Chart.js that visualizes your latency distribution and Unbound cache health. It features auto-refreshing stats, dark-mode styling, and support for custom monitoring profiles.
-* **Domain Filtering:** Supports **Wildcards** (`*`, `?`).
-* **Unbound Integration:** Auto-detects Unbound to report Cache Hit Ratio, Prefetch jobs, and Cache Memory Usage.
-* **Snapshot Mode:** Safely copies the database before analysis to prevent "Database Locked" errors. Includes **Smart RAM Safety** to choose between RAM (fast) or Disk (safe) snapshots automatically.
-* **Flexible Filtering:** Filter by time (last 24h, 7 days), specific date ranges (`-from`, `-to`), status (Blocked/Forwarded), or specific domains.
-* **JSON Support:** Native JSON output for dashboards (Home Assistant, Grafana, Node-RED).
-* **Configuration Profiles:** Define default arguments inside the config file to create preset "Profiles" that override CLI flags.
-* **Zero Dependencies:** Uses standard tools (`sqlite3`, `bc`, `awk`, `sed`) pre-installed on most Pi-hole distros.
+
+---
 
 ## Requirements
 
-* Pi-hole (v5 or v6)
 * `sqlite3` (usually installed by default)
 * *(Optional)* `unbound` and `unbound-host` (for Unbound statistics)
 
@@ -48,57 +51,61 @@ wget -O install_phls.sh https://github.com/panoc/pihole-latency-stats/releases/l
 ```
 
 > [!TIP]
-> **Existing Users:** The v3.3 installer will automatically update your configuration and preserve your settings while adding new dashboard variables.
+> **Existing Users:** The v4. installer will automatically update your configuration and preserve your settings while adding new dashboard variables.
 
 ---
 
-## 📸 Dashboard Preview
+## 📊 Visual Dashboard
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/panoc/pihole-latency-stats/main/assets/dash_ss_1280.jpg" alt="Dashboard Preview" width="100%">
-</p>
+Includes a modern, responsive browser dashboard powered by **Chart.js**.
 
-### Dashboard Automation (Important)
-The web dashboard auto-refreshes its display every 60 seconds, but it requires a **cron job** to run the analysis script and generate fresh data. Without this, the dashboard will show the same static data until the script is run manually.
-To automate this, add a cron job to your system.
+*Features: Auto-refresh, Dark Mode, Historical Trends, and Multi-Profile support.*
+
+<a href="https://raw.githubusercontent.com/panoc/pihole-latency-stats/main/assets/dash_ss_1280.jpg" target="_blank">
+<img src="https://raw.githubusercontent.com/panoc/pihole-latency-stats/main/assets/dash_ss_1280.jpg" alt="Dashboard Screenshot" width="100%" style="border-radius: 6px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
+</a>
 
 ---
 
-##  Real-World Use Cases
+
+## 🛠️ Real-World Use Cases
 
 ### 1. Diagnosing "Is it me or the ISP?"
 
-When your internet feels slow, speed tests often lie because they measure bandwidth, not latency. DNS lag is the #1 cause of "snappy" browsing turning sluggish.
+Speed tests measure bandwidth, not latency. DNS lag is the primary cause of sluggish browsing.
 
 * **The Test:** Compare your **Local** speed vs **Upstream** speed.
-* `./pihole_stats.sh -pi` (Measures only cached/local answers)
-* `./pihole_stats.sh -up` (Measures only answers from Cloudflare/Google/ISP)
+* `./pihole_stats.sh -pi` (Cached/Local answers)
+* `./pihole_stats.sh -up` (Cloudflare/Google/ISP answers)
 
 
-* **The Insight:**
-* If `-pi` is slow (> 10ms): Your Raspberry Pi might be overloaded or using a slow SD card.
-* If `-up` is slow (> 100ms): Your ISP or upstream DNS provider is having issues.
 
-
+> **💡 The Insight**
+> * If **`-pi` is slow (> 10ms):** Your Raspberry Pi might be overloaded or using a slow SD card.
+> * If **`-up` is slow (> 100ms):** Your ISP or upstream DNS provider is having issues.
+> 
+> 
 
 ### 2. Optimizing Unbound Performance
 
-If you use Unbound (recursive or forwarding), blind trust isn't enough. Verify your cache efficiency.
+If you run Unbound as a recursive resolver, blind trust isn't enough. Verify your efficiency.
 
-* **Benchmark Strategy:** Run `./pihole_stats.sh -up` to strictly analyze upstream resolution speed. Compare the **Average** and **p95** latency against a standard forwarder like `1.1.1.1` to see if being recursive is actually worth the speed trade-off.
-* **Tune Cache Efficiency:** Check the **Cache Hit Ratio** in the Unbound panel. If it stays low (< 50%) after 24 hours, consider increasing `cache-min-ttl`.
-* **Deep Inspection:** Use `./pihole_stats.sh -ucc` to count the exact number of **Messages** and **RRsets** in RAM. This helps verify if `prefetch` is effectively keeping popular domains alive.
+* **The Strategy:** Run `./pihole_stats.sh -up` to strictly analyze upstream resolution speed. Compare the **Average** against a standard forwarder (like `1.1.1.1`).
+* **Deep Inspection:** Use the `-ucc` flag to count the exact number of **Messages** and **RRsets** in RAM.
+
+> **💡 The Insight**
+> If your **Cache Hit Ratio** stays low (< 50%) after 24 hours, consider increasing `cache-min-ttl` in your Unbound config.
 
 ### 3. Domain-Specific Debugging
 
-Sometimes specific services (like work VPNs or streaming sites) feel slow while everything else is fine.
+Services like work VPNs or streaming sites often behave differently than general traffic.
 
-* **The Test:** Filter stats for a specific domain.
-* `./pihole_stats.sh -dm "netflix"` (Analyzes `netflix.com`, `nflxso.net`, etc.)
+* **The Test:** Filter stats for specific domains.
+* `./pihole_stats.sh -dm "netflix"` (Matches `netflix.com`, `nflxso.net`, etc.)
 * `./pihole_stats.sh -edm "my-work-vpn.com"` (Exact match only)
 
-
-* **The Insight:** You might find that while your average global latency is 20ms, `netflix` queries are hitting **Tier 8 (>1000ms)**, indicating a specific routing issue or blocklist conflict.
+> **💡 The Insight**
+> You might find that while your global average is **20ms**, specific queries are hitting **Tier 8 (>1000ms)**, indicating a routing timeout.
 
 ### 4. Long-Term Health Monitoring
 
@@ -106,7 +113,6 @@ Spot trends before they become problems by automating data collection.
 
 * **The Setup:** Add the script to Cron to run nightly.
 * `./pihole_stats.sh -24h -j -f "daily_stats.json" -rt 30`
-
 
 * **The Insight:**
    * **JSON Output:** Ingest this into **Home Assistant**, **Grafana**, or **Node-RED** to visualize latency over weeks.
@@ -119,8 +125,6 @@ Spot trends before they become problems by automating data collection.
 Detailed information on CLI flags, automation, and advanced tuning can be found here:
 
 ### 👉 [Detailed Usage & Command Guide](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md)
-
-### 👉 [Profile Example & Command Guide](https://github.com/panoc/pihole-latency-stats/blob/main/docs/PROFILE_GUIDE.md)
 
 ---
 
