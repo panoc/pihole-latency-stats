@@ -34,7 +34,7 @@
 
 7. **[Metric Definitions (The Analytics)](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#7-metric-definitions-the-analytics)**
 8. **[Update Notifications & Maintenance](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#8-Update-Notifications-&-Maintenance)**
-   *[The Unistaller]### 🗑️ The Uninstaller
+   *[The Unistaller](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#%EF%B8%8F-the-uninstaller)
 10. **[Troubleshooting & Debugging](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#9-troubleshooting--debugging)**
 
 ---
