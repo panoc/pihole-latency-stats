@@ -7,20 +7,6 @@
 # License:     GPLv3
 # ==============================================================================
 # Copyright (C) 2026 panoc <https://github.com/panoc>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-# ==============================================================================
 # --- VERSION ---
 VERSION="2.2"
 
@@ -44,8 +30,6 @@ DEFAULT_CONFIG="$INSTALL_DIR/pihole_stats.conf"
 
 # Databases
 CRON_DB="$CRON_DIR/cron_profiles.db"
-# Required PATH for cron to find unbound-control/sqlite3
-CRON_PATH="PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin"
 
 # Ensure Cron Dir Exists
 mkdir -p "$CRON_DIR"
@@ -66,7 +50,6 @@ for arg in "$@"; do
 done
 
 # --- VALIDATION ARRAYS ---
-# Removed -ucc from here as it has a dedicated prompt
 VALID_FLAGS=(
     "-up:Upstream queries only"
     "-pi:Pi-hole queries only"
@@ -290,7 +273,10 @@ save_and_schedule() {
     local cmd_args="-dash \"$name\" -c \"$conf_file\""
     if [ "$ucc" == "true" ]; then cmd_args="$cmd_args -ucc"; fi
     
-    local full_cmd="cd $INSTALL_DIR && ./pihole_stats.sh $cmd_args >> $CRON_DIR/${name}_debug.log 2>&1"
+    # --- INLINE PATH DEFINITION ---
+    # We prepend the path export directly to this command only.
+    local required_path="export PATH=\$PATH:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin;"
+    local full_cmd="$required_path cd $INSTALL_DIR && ./pihole_stats.sh $cmd_args >> $CRON_DIR/${name}_debug.log 2>&1"
     
     # BUILD CRON STRING
     local cron_entries=""
@@ -323,12 +309,8 @@ save_and_schedule() {
     
     # INSTALL CRON
     local EXISTING_CRON=$(crontab -l 2>/dev/null)
-    local FINAL_CRON=""
-    if echo "$EXISTING_CRON" | grep -q "^PATH="; then
-        FINAL_CRON=$(echo -e "$EXISTING_CRON\n$cron_entries")
-    else
-        FINAL_CRON=$(echo -e "$CRON_PATH\n$EXISTING_CRON\n$cron_entries")
-    fi
+    local FINAL_CRON=$(echo -e "$EXISTING_CRON\n$cron_entries")
+    
     echo "$FINAL_CRON" | crontab -
 
     # SAVE TO DB (Append)
@@ -344,10 +326,6 @@ save_and_schedule() {
 remove_cron_job() {
     local name="$1"
     crontab -l 2>/dev/null | grep -v "# PHLS-ID:$name" | crontab -
-    
-    # Clean up files if we are NOT modifying (keep files if just edit logic)
-    # But usually we want to delete.
-    # In modify logic we handle file updates separately.
 }
 
 modify_profile() {
