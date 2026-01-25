@@ -187,9 +187,9 @@ th {
 
 /* --- Reduce Header Height --- */
 .page-header {
-  /* Default is 5rem. We change it to 2rem to make it much shorter. */
-  padding-top: 2rem !important;
-  padding-bottom: 2rem !important;
+
+  padding-top: 1rem !important;
+  padding-bottom: 0rem !important;
 }
 
 /* --- 1. Top Banner Title (Project Name) --- */
