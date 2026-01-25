@@ -1171,13 +1171,32 @@ async function checkForUpdates(scriptCurrent) {
         const getV = (r, regex) => (r.match(regex) || [])[1];
         const remS = getV(remoteText, /s=([0-9.]+)/);
         const remD = getV(remoteText, /d=([0-9.]+)/);
+
+        // --- FIXED COMPARISON LOGIC ---
         const isNewer = (rem, cur) => {
-            const r = rem.split('.').map(Number), c = cur.split('.').map(Number);
-            return r.some((v, i) => v > (c[i]||0));
+            if (!rem || !cur) return false;
+            // Strip 'v' and split
+            const r = rem.replace(/[^0-9.]/g, '').split('.').map(Number);
+            const c = cur.replace(/[^0-9.]/g, '').split('.').map(Number);
+            
+            // Compare digit by digit
+            for (let i = 0; i < Math.max(r.length, c.length); i++) {
+                const rv = r[i] || 0;
+                const cv = c[i] || 0;
+                if (rv > cv) return true;  // Remote is larger
+                if (rv < cv) return false; // Remote is smaller (stop checking)
+            }
+            return false; // Exactly equal
         };
+
         const link = ' <a href="https://panoc.github.io/pihole-latency-stats/" target="_blank" class="new-version-link">';
-        if (remS && isNewer(remS, scriptCurrent)) document.getElementById('script-new-v').innerHTML = link + `(NEW ${remS})</a>`;
-        if (remD && isNewer(remD, currentDashVersion)) document.getElementById('dash-new-v').innerHTML = link + `(NEW ${remD})</a>`;
+        
+        if (remS && isNewer(remS, scriptCurrent)) {
+            document.getElementById('script-new-v').innerHTML = link + `(NEW ${remS})</a>`;
+        }
+        if (remD && isNewer(remD, currentDashVersion)) {
+            document.getElementById('dash-new-v').innerHTML = link + `(NEW ${remD})</a>`;
+        }
     } catch (e) { console.warn("Update check skipped", e); }
 }
 
