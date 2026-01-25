@@ -76,10 +76,19 @@ Services like work VPNs or streaming sites often behave differently than general
 * `./pihole_stats.sh -dm "netflix"` (Matches `netflix.com`, `nflxso.net`, etc.)
 * `./pihole_stats.sh -edm "my-work-vpn.com"` (Exact match only)
 
-
-
 > **💡 The Insight**
 > You might find that while your global average is **20ms**, specific queries are hitting **Tier 8 (>1000ms)**, indicating a routing timeout.
+
+### 4. Long-Term Health Monitoring
+
+Spot trends before they become problems by automating data collection.
+
+* **The Setup:** Add the script to Cron to run nightly.
+* `./pihole_stats.sh -24h -j -f "daily_stats.json" -rt 30`
+
+* **The Insight:**
+   * **JSON Output:** Ingest this into **Home Assistant**, **Grafana**, or **Node-RED** to visualize latency over weeks.
+  * **Auto-Retention (`-rt`):** Keeps your disk clean by automatically deleting reports older than 30 days.
 
 ---
 
@@ -88,7 +97,6 @@ Services like work VPNs or streaming sites often behave differently than general
 Ready to dive deeper? Check out the full guides below.
 
 [👉 Detailed Command Guide](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md){: .btn }
-[👉 Profile & Config Guide](https://github.com/panoc/pihole-latency-stats/blob/main/docs/PROFILE_GUIDE.md){: .btn }
 
 ---
 
