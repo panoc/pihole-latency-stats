@@ -2,16 +2,15 @@
 layout: default
 ---
 
-<div align="center">
+<div align="center" markdown="1">
 
 # Pi-hole Latency Stats
-
 
 <br>
 
 **A lightweight, zero-dependency analytics suite for Pi-hole & Unbound.** *Diagnose latency, visualize cache health, and optimize your DNS performance.*
 
-
+[View on GitHub](https://github.com/panoc/pihole-latency-stats){: .btn } [Download Latest](https://github.com/panoc/pihole-latency-stats/releases/latest){: .btn }
 
 </div>
 
