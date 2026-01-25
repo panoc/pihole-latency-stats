@@ -3,16 +3,12 @@
 
 /* IMPORTS THE DEFAULT CAYMAN THEME FIRST */
 @import "{{ site.theme }}";
+
 /* ==========================================================================
-   Pi-hole Latency Stats - Dashboard V4 Theme Matcher
-   Target: Cayman Theme (GitHub Pages)
+   DASHBOARD V4 THEME VARIABLES
+   (Derived from your dash.html)
    ========================================================================== */
-
-/* Import Dashboard Font */
-@import url('https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,600,700&display=swap');
-
 :root {
-  /* --- DASHBOARD PALETTE --- */
   --dash-bg:       linear-gradient(120deg, #420808, #1a1a1a);
   --dash-card:     #1f2226;
   --dash-border:   #343a40;
@@ -27,136 +23,164 @@
   --acc-red:       #dd4b39;
 }
 
-/* 1. Global Page Background (Matches Dashboard Body) */
+/* ==========================================================================
+   1. GLOBAL PAGE STYLES (Dark Mode Override)
+   ========================================================================== */
+
+/* Apply the Dashboard Gradient to the whole page background */
 body {
   background-image: var(--dash-bg);
+  background-color: #1a1a1a; /* Fallback */
   background-attachment: fixed;
   background-size: cover;
-  color: var(--dash-text);
-  font-family: 'Source Sans Pro', 'Segoe UI', Helvetica, Arial, sans-serif;
+  color: var(--dash-text); /* Light text */
 }
 
-/* 2. Main Content Area -> Styled as a "Dashboard Card" */
-/* In standard Cayman, .main-content holds the documentation */
+/* Links - Use Dashboard Blue instead of Red to match the interface */
+a {
+  color: var(--acc-blue);
+  text-decoration: none;
+}
+.main-content a {
+  color: var(--acc-blue) !important;
+}
+a:hover, .main-content a:hover {
+  text-decoration: underline;
+  color: #4aa3df; /* lighter blue */
+}
+
+/* ==========================================================================
+   2. HEADER & LOGO (Your Custom Settings Preserved)
+   ========================================================================== */
+
+.page-header {
+  /* Keep your gradient matches the body, making it seamless */
+  background-color: #1e2327; 
+  background-image: linear-gradient(120deg, #420808, #1a1a1a);
+  
+  /* Your Height Adjustments */
+  padding-top: 2rem !important;
+  padding-bottom: 2rem !important;
+}
+
+/* Project Name & Flexbox Centering */
+.project-name {
+  color: #FFFDFC !important; 
+  display: flex !important;
+  align-items: center !important;     
+  justify-content: center !important; 
+}
+
+/* Your Logo Icon Logic */
+.project-name::before {
+  content: "";
+  display: block;             
+  margin-right: 10px;           
+  width: 37px; 
+  height: 37px;
+  background-image: url('{{ site.github.url }}/assets/favicon.png');
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  position: relative;
+  top: 2px;
+}
+
+.project-tagline {
+  color: #aeb4b9; /* Slightly brighter for readability on dark header */
+}
+
+/* Header Buttons - Converted to Dark Dashboard Style */
+.btn {
+  background-color: #343a40 !important; /* Dashboard Button Grey */
+  color: #b0b0b0 !important;            /* Muted Text */
+  border: 1px solid var(--dash-border) !important;
+  transition: all 0.2s;
+}
+
+.btn:hover {
+  background-color: var(--acc-blue) !important; /* Dashboard Blue Hover */
+  color: #fff !important;
+  border-color: var(--acc-blue) !important;
+}
+
+/* ==========================================================================
+   3. MAIN CONTENT (The "Card" Look)
+   ========================================================================== */
+
+/* Turn the main white box into a Dashboard Card */
 .main-content {
-  background-color: var(--dash-card);
+  background-color: var(--dash-card); /* Dark Grey Card */
   color: var(--dash-text);
   
-  /* Card Look & Feel from dash.html */
+  /* Card Styling */
   box-shadow: 0 4px 15px rgba(0,0,0,0.3);
   border-radius: 6px;
-  border-top: 3px solid var(--acc-blue); /* Default Blue Accent top border */
+  border-top: 3px solid var(--acc-blue); /* Distinctive Blue Top Border */
   
-  /* Spacing adjustments for the card look */
+  /* Your Width Adjustment */
+  max-width: 72rem !important;
+  
+  /* Spacing */
   padding: 2rem;
   margin-top: 2rem;
   margin-bottom: 2rem;
 }
 
-/* 3. Typography Overrides */
-h1, h2, h3, h4, h5, h6 {
-  color: var(--dash-bright);
-  font-weight: 600;
+/* Headings inside the content */
+.main-content h1, 
+.main-content h2, 
+.main-content h3, 
+.main-content h4, 
+.main-content h5, 
+.main-content h6 {
+  color: var(--dash-bright) !important; /* Bright White */
   margin-top: 1.5rem;
 }
 
-/* Horizontal Rules */
-hr {
-  border: 0;
-  border-top: 1px solid var(--dash-border);
-  opacity: 0.5;
-}
+/* ==========================================================================
+   4. CODE BLOCKS & QUOTES (Dark Theme)
+   ========================================================================== */
 
-/* Links (Use dashboard vibrant blue) */
-a {
-  color: var(--acc-blue);
-  text-decoration: none;
-}
-a:hover {
-  text-decoration: underline;
-  color: #4aa3df; /* lighter blue from dash vars */
-}
-
-/* 4. Code Blocks (Matches Dashboard Badges/Inputs) */
-code {
-  background-color: #343a40; /* --btn-bg */
-  color: #e0e0e0;
-  padding: 0.2em 0.4em;
-  border-radius: 3px;
-  font-family: Consolas, "Liberation Mono", Menlo, Courier, monospace;
-  font-size: 85%;
-}
-
-pre {
-  background-color: #181a1d; /* Slightly darker than card */
-  border: 1px solid var(--dash-border);
-  border-radius: 4px;
-  padding: 1rem;
-  overflow: auto;
-}
-pre code {
-  background-color: transparent;
-  padding: 0;
-  color: var(--dash-bright);
-  font-size: 0.9rem;
-}
-
-/* 5. Blockquotes */
+/* Blockquotes - Dashboard Style (Yellow Accent) */
 blockquote {
-  border-left: 4px solid var(--acc-yellow); /* Dashboard Yellow Accent */
-  color: var(--dash-muted);
+  border-left: 5px solid var(--acc-yellow) !important;
   background: rgba(255, 255, 255, 0.05);
+  color: var(--dash-muted) !important;
   padding: 0.5rem 1rem;
 }
 
-/* 6. Tables */
+blockquote p, 
+blockquote ul, 
+blockquote li,
+blockquote strong {
+  color: var(--dash-muted) !important; /* Override your previous black text enforcement */
+}
+
+/* Code Blocks - Terminal Style */
+pre, code {
+  background-color: #181a1d !important; /* Very Dark Grey */
+  color: #e6dfdf !important;            /* Bright Text */
+  border: 1px solid var(--dash-border) !important;
+  border-radius: 4px;
+}
+
+/* Tables */
 table {
   width: 100%;
   border-collapse: collapse;
-  margin-bottom: 1.5rem;
 }
 th, td {
-  padding: 0.75rem;
   border-bottom: 1px solid var(--dash-border);
+  padding: 0.75rem;
 }
 th {
-  text-align: left;
   color: var(--dash-bright);
   border-bottom: 2px solid var(--dash-border);
 }
 
-/* 7. Buttons (Matching Dashboard Controls) */
-.btn {
-  background-color: #343a40; /* --btn-bg */
-  background-image: none;    /* Remove Cayman gradient */
-  border: 1px solid var(--dash-border);
-  color: var(--dash-muted);
-  border-radius: 4px;
-  transition: all 0.2s;
-  font-weight: 600;
-}
-
-.btn:hover {
-  background-color: var(--acc-blue);
-  border-color: var(--acc-blue);
-  color: #fff;
-  text-decoration: none;
-}
-
-/* 8. Footer (Site Footer) */
-.site-footer {
-  border-top: 1px solid var(--dash-border);
-  margin-top: 0; /* Reset margins to fit card style */
-}
+/* Footer Credits */
 .site-footer-owner, 
 .site-footer-credits {
   color: var(--dash-muted) !important;
-}
-
-/* --- OPTIONAL: Adjust Cayman Header to blend slightly better --- */
-/* If you strictly want the header UNTOUCHED, remove this block. 
-   But standard Cayman header usually assumes a white body below it. 
-   Since we added a dark body, the bottom edge might look sharp. */
-.page-header {
-  /* No changes applied to keep it "the same" as requested */
 }
