@@ -316,8 +316,6 @@ The `pihole_stats.conf` file allows you to set permanent defaults so you don't h
 ```bash
 # ================= PI-HOLE STATS CONFIGURATION =================
 
-# ================= PI-HOLE STATS CONFIGURATION =================
-
 # --- Database Location ---
 # Path to your Pi-hole FTL database.
 DBfile="/etc/pihole/pihole-FTL.db"
