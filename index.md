@@ -13,18 +13,19 @@ layout: default
 
 ---
 
-## ⚡ Quick Start
+## ✨ Key Features
 
-Install or update everything (Core Script + Dashboard) with a single command:
-
-```bash
-wget -O install_phls.sh https://github.com/panoc/pihole-latency-stats/releases/latest/download/install_phls.sh && sudo bash install_phls.sh
-
-```
-
-> **Note:** The installer will guide you through setting up **Cron Jobs**, creating **Profiles**, and installing the **Dashboard**.
+| Feature | Description |
+| --- | --- |
+| **🔍 Latency Analysis** | Calculates **Average**, **Median**, and **P95** latency to spot jitters. |
+| **📈 Tiered Grouping** | Groups query speeds into "Tiers" (e.g., `<10ms`, `10-50ms`) for easy analysis. |
+| **🔄 Unbound Integration** | Auto-detects Unbound to report **Cache Hit Ratio**, **Prefetching**, and **RAM Usage**. |
+| **📸 Snapshot Mode** | Safely copies the database before analysis to prevent `Database Locked` errors. |
+| **🎯 Smart Filtering** | Filter by **Time** (24h, 7d), **Status** (Blocked/Forwarded), or **Domain** (Wildcards supported). |
+| **🤖 Automation Ready** | Native **JSON output** for Home Assistant, Grafana, or Node-RED integration. |
 
 ---
+
 
 ## 📊 Visual Dashboard
 
@@ -38,18 +39,6 @@ Includes a modern, responsive browser dashboard powered by **Chart.js**.
 
 ---
 
-## ✨ Key Features
-
-| Feature | Description |
-| --- | --- |
-| **🔍 Latency Analysis** | Calculates **Average**, **Median**, and **P95** latency to spot jitters. |
-| **📈 Tiered Grouping** | Groups query speeds into "Tiers" (e.g., `<10ms`, `10-50ms`) for easy analysis. |
-| **🔄 Unbound Integration** | Auto-detects Unbound to report **Cache Hit Ratio**, **Prefetching**, and **RAM Usage**. |
-| **📸 Snapshot Mode** | Safely copies the database before analysis to prevent `Database Locked` errors. |
-| **🎯 Smart Filtering** | Filter by **Time** (24h, 7d), **Status** (Blocked/Forwarded), or **Domain** (Wildcards supported). |
-| **🤖 Automation Ready** | Native **JSON output** for Home Assistant, Grafana, or Node-RED integration. |
-
----
 
 ## 🛠️ Real-World Use Cases
 
@@ -103,6 +92,4 @@ Ready to dive deeper? Check out the full guides below.
 
 ---
 
-```
 
-```
