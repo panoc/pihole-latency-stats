@@ -50,9 +50,6 @@ wget -O install_phls.sh https://github.com/panoc/pihole-latency-stats/releases/l
 
 ```
 
-> [!TIP]
-> **Existing Users:** The v4. installer will automatically update your configuration and preserve your settings while adding new dashboard variables.
-
 ---
 
 ## 📊 Visual Dashboard
