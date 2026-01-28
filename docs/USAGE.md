@@ -136,6 +136,17 @@ Usage: `sudo ./pihole_stats.sh [FLAGS]`
 * **Command:** Runs `unbound-control dump_cache`.
 * **Mechanism:** Parses the raw dump to count `msg` (Messages/Questions) and `rrset` (Resource Records/Answers).
 * **⚠️ Performance Warning:** Dumping the cache **locks** Unbound's memory. On a Pi Zero with 50k+ entries, this can pause DNS resolution for 1-3 seconds. Use sparingly (e.g., hourly), NOT every 10 seconds.
+> **In order -unb and -ucc to work you need to add in your unbound.conf :**
+
+```
+server:
+  ... other settings ...
+  extended-statistics: yes
+
+remote-control:
+  control-enable: yes
+  control-interface: 127.0.0.1
+```
 
 
 ### 📄The Core Script (`pihole_stats.sh`) - Deep Dive
