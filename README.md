@@ -50,6 +50,8 @@ wget -O install_phls.sh https://github.com/panoc/pihole-latency-stats/releases/l
 
 ```
 
+### 👉 [Manual Installation Guide](https://github.com/panoc/pihole-latency-stats/blob/main/docs/MANUAL_INSTALLATION.md)
+
 ---
 
 ## 📊 Visual Dashboard
