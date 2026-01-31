@@ -1,10 +1,10 @@
-# 📘 Pi-hole Latency Stats (PHLS) v4.0 - Technical Manual
+# 📘 Pi-hole Latency Stats (PHLS) v4.2.0 - Technical Manual
 
-**Version:** 4.0
+**Version:** 4.2.0
 
-**Release Date:** 2026-01-06
+**Release Date:** 2026-01-31
 
-**Architecture:** Profile-Based / Historical Monitoring
+**Architecture:** Parallel Processing / Profile-Based / Historical Monitoring
 
 ---
 
@@ -26,10 +26,10 @@
 
 
 5. **[Configuration File Anatomy (`pihole_stats.conf`)](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#5-configuration-file-anatomy-pihole_statsconf)**
-6. **[The Dashboard v2.0](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#6-the-dashboard-v20)**
+6. **[The Dashboard v2.3](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#6-the-dashboard-v23)**
    * [Access & URL Parameters](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#access--url-parameters)
    * [Metrics & Visualization](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#metrics--visualization)
-   * [Gap Filling & Stale Data Logic](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#gap-filling--stale-data-logic)
+   * [Layout Customization](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#layout-customization)
 
 
 7. **[Metric Definitions (The Analytics)](https://github.com/panoc/pihole-latency-stats/blob/main/docs/USAGE.md#7-metric-definitions-the-analytics)**
@@ -40,7 +40,7 @@
 
 ---
 
-**PHLS v4.0** is a comprehensive monitoring suite for Pi-hole and Unbound. Unlike basic "snapshot" tools, PHLS is designed for **historical analysis**. It records data over time to help you identify:
+**PHLS v4.2.0** is a comprehensive monitoring suite for Pi-hole and Unbound. Unlike basic "snapshot" tools, PHLS is designed for **historical analysis**. It records data over time to help you identify:
 
 * **Latency Spikes:** Is your ISP lagging at 8 PM?
 * **Jitter:** Is your connection fast but unstable?
@@ -56,14 +56,14 @@ It consists of three components working in tandem:
 
 ## 1. Introduction & Architecture
 
-**Pi-hole Latency Stats v4.0** is a complete rewrite of the original tool. Unlike previous versions which were "stateless" (showing only a snapshot of the *now*), v4.0 is a **stateful monitoring system**.
+**Pi-hole Latency Stats v4.2** is a major evolution of the tool. It introduces a **Parallel Processing Engine** to handle heavy database queries without slowing down.
 
 ### Key Architectural Changes:
 
-* **Profile-Awareness:** The script no longer assumes a single global configuration. It can switch "personalities" (Profiles) to monitor different things (e.g., one profile for Upstream latency, another for local Network latency).
-* **Time-Series Data:** It maintains history files (`.h.json`) allowing for long-term trend analysis (12h, 24h, 7d, 30d).
+* **Parallel Workers:** The script now spawns background processes to query Unbound stats and Pi-hole logs simultaneously. This reduces execution time significantly, especially on multi-core systems (Pi 4/5).
+* **Upstream Isolation:** New logic calculates a dedicated latency distribution for Upstream queries only (Status 2, 6, 7, 8), separating them from cached hits.
+* **Profile-Awareness:** The script can switch "personalities" (Profiles) to monitor different things (e.g., one profile for Upstream latency, another for local Network latency).
 * **Concurrency Locking:** Uses PID lock files (`/tmp/phls_<profile>.lock`) to prevent Cron jobs from overlapping and spiking CPU usage.
-* **Sub-Minute Resolution:** The new Cron Maker enables monitoring intervals as fast as **10 seconds** using sleep-loop injection.
 
 ---
 
@@ -138,14 +138,17 @@ Usage: `sudo ./pihole_stats.sh [FLAGS]`
 * **⚠️ Performance Warning:** Dumping the cache **locks** Unbound's memory. On a Pi Zero with 50k+ entries, this can pause DNS resolution for 1-3 seconds. Use sparingly (e.g., hourly), NOT every 10 seconds.
 > **In order -unb and -ucc to work you need to add in your unbound.conf :**
 
+
 ```
+
 server:
-  ... other settings ...
-  extended-statistics: yes
+... other settings ...
+extended-statistics: yes
 
 remote-control:
-  control-enable: yes
-  control-interface: 127.0.0.1
+control-enable: yes
+control-interface: 127.0.0.1
+
 ```
 
 
@@ -236,6 +239,7 @@ Low-level controls for power users.
 * *Scenario:* Pi-hole's FTL database is locked by a long-term query.
 * *Action:* PHLS creates a temporary copy (`sqlite3 .backup`) to `/tmp/pi_snap_XXXX.db`.
 * *Smart RAM:* If free RAM > DB Size + 50MB, it creates the snapshot in RAM (`/dev/shm` or equivalent) for speed. Otherwise, it uses Disk.
+* **Note:** The **Cron Maker** now enforces `-snap` usage for all automated jobs to ensure system stability.
 
 
 
@@ -263,6 +267,7 @@ Run: `sudo ~/phls/cron/cronmaker.sh`
 1. **Create Profile:**
 * Enter a name (alphanumeric).
 * **Customize Tiers:** The TUI will ask if you want to edit latency buckets. This allows you to set "Tier 1" to "0.5ms" for a local LAN profile, or "20ms" for a WAN profile.
+* **Customize Cutoffs:** Set Minimum/Maximum latency cutoffs to exclude outliers.
 * **Extra Arguments:** Enter standard CLI flags here (e.g., `-up -nx`).
 * **Schedule:**
 * Standard: Input a number (Minutes).
@@ -273,13 +278,8 @@ Run: `sudo ~/phls/cron/cronmaker.sh`
 * * * * * ./script.sh ...
 * * * * * sleep 30; ./script.sh ...
 
+
 ```
-
-
-
-
-
-
 
 ### MANUAL Profile Configuration (Advanced)
 
@@ -290,6 +290,7 @@ If you hate interactive wizards, you can build profiles manually.
 ```bash
 mkdir -p ~/phls/my_custom_profile
 
+
 ```
 
 **Step 2: Create Configuration**
@@ -297,6 +298,7 @@ Copy the default config or create a new one:
 
 ```bash
 cp ~/phls/pihole_stats.conf ~/phls/my_custom_profile/pihole_stats.conf
+
 
 ```
 
@@ -309,12 +311,14 @@ You don't *have* to register it in `profiles.db` if you call it by path, but to 
 ```bash
 echo "my_custom_profile|~/phls/my_custom_profile/pihole_stats.conf" >> ~/phls/profiles.db
 
+
 ```
 
 **Step 5: Test**
 
 ```bash
 sudo ./pihole_stats.sh -c ~/phls/my_custom_profile/pihole_stats.conf
+
 
 ```
 
@@ -330,6 +334,8 @@ The `pihole_stats.conf` file allows you to set permanent defaults so you don't h
 # --- Database Location ---
 # Path to your Pi-hole FTL database.
 DBfile="/etc/pihole/pihole-FTL.db"
+# Safety: Prevent scanning more than X days to avoid RAM exhaustion.
+MAX_DB_DAYS="91"
 
 # --- Output Directories ---
 # Default directories for manual reports (using -j or -f).
@@ -359,8 +365,8 @@ MAX_LOG_AGE=""
 ENABLE_UNBOUND="auto"
 
 # --- Visual Layout for CLI ---
-# auto       : Detects terminal width.
-# vertical   : Standard list view.
+# auto        : Detects terminal width.
+# vertical    : Standard list view.
 # horizontal : Split-pane view.
 LAYOUT="auto"
 
@@ -374,6 +380,12 @@ DEFAULT_TO=""
 # Any flags placed here are injected into the script automatically.
 # This is how Profiles are differentiated (e.g., Profile A has CONFIG_ARGS='-up', Profile B has '-pi').
 CONFIG_ARGS=""
+
+# --- UPSTREAM DISTRIBUTION SETTINGS ---
+# Enable specific latency analysis for Upstream queries (Status 2, 6, 7, 8)
+ENABLE_UPSTREAM_DIST="true"
+# Cutoff (in ms) to exclude cached replies from upstream stats (default 3ms)
+UPSTREAM_DIST_MIN_CUTOFF="3"
 
 # --- Latency Tiers (Upper Limits in Milliseconds) ---
 # These values (in milliseconds) define the "Tiers" shown in the distribution graph.
@@ -392,12 +404,12 @@ L10="1000"   # Timeout / Packet Loss
 MIN_LATENCY_CUTOFF=""
 MAX_LATENCY_CUTOFF=""
 
-```
 
+```
 
 ---
 
-## 6. The Dashboard v2.0
+## 6. The Dashboard v2.3
 
 ### Access & URL Parameters
 
@@ -405,30 +417,38 @@ MAX_LATENCY_CUTOFF=""
 * **Specific Profile:** `...?p=upstream_check`
 * Loads `dash_upstream_check.json` and `dash_upstream_check.h.json`.
 
+### Layout Customization
 
+New in v2.3, the dashboard is fully interactive:
+
+* **Drag & Drop:** Use the **↑** and **↓** arrows to reorder charts based on your preference.
+* **Persistence:** Your layout choices, collapsed sections, and chart types (Bar/Line) are saved in your browser storage and restored on reload.
+* **System Overview:** A new consolidated card shows Pi-hole and Unbound health at a glance.
 
 ### Metrics & Visualization
 
 1. **Latency History:**
+
 * **Line/Bar Chart:** Shows Average (Blue) vs P95 (Orange).
 * **Controls:** Click `Log` (Logarithmic) to flatten huge spikes. Click `Scroll` (↔) to pan through history if data > screen width.
 
+2. **Upstream Distribution (New):**
 
-2. **Standard Deviation:**
-* Shows the stability of the connection.
-* *High Avg / Low StdDev:* Consistently slow.
-* *Low Avg / High StdDev:* Fast but jittery/unstable (Gamers hate this).
+* A dedicated chart isolating *only* queries sent to upstream servers.
+* Filters out local cache hits to give you a true picture of your ISP/DNS provider's performance.
 
+3. **Unbound Histogram:**
 
-3. **Unbound Efficiency:**
+* If enabled in Unbound config, shows a histogram of internal processing latency buckets.
+
+4. **Unbound Efficiency:**
+
 * Tracks **Hits** (Cyan) vs **Misses** (Red).
 * Look for a high "Prefetch" ratio (Green line) – this means Unbound is updating records *before* they expire.
 
+5. **Memory:**
 
-4. **Memory:**
 * Visualizes `msg.cache` vs `rrset.cache`. If this hits 100%, Unbound will start evicting records early.
-
-
 
 ### Gap Filling & Stale Data Logic
 
@@ -452,34 +472,43 @@ The JS engine includes a **Gap Detection Algorithm**.
 
 ## 8. Update Notifications & Maintenance
 
-PHLS v4.0 includes a "Version Check" system. It keeps you informed about new features or fixes without automatically modifying your system files.
+PHLS v4.2 includes a "Version Check" system. It keeps you informed about new features or fixes without automatically modifying your system files.
 
 ### 🔄 The Update Checker
+
 The installer deploys a lightweight background check script named `phls_version_check.sh`.
 
 * **Location:** `~/phls/phls_version_check.sh`
 * **Schedule:** Runs automatically every **3 days** (via Cron).
 * **How it works:**
-    1.  It downloads a tiny `version` file from the official repository to your local folder.
-    2.  It **does not** download or change any code. It only updates the version definition file.
-    3.  This ensures your customizations are never overwritten automatically.
+1. It downloads a tiny `version` file from the official repository to your local folder.
+2. It **does not** download or change any code. It only updates the version definition file.
+3. This ensures your customizations are never overwritten automatically.
+
+
 
 ### 🔔 How you get notified
+
 Since the system doesn't auto-upgrade, it uses the `version` file to alert you in two places:
 
-1.  **Terminal (CLI):**
-    Every time you run `pihole_stats.sh`, it compares its internal version against the downloaded `version` file.
-    * *If an update exists:* You will see a bright **[NEW UPDATE AVAILABLE]** banner at the bottom of your output with a link to the release.
+1. **Terminal (CLI):**
+Every time you run `pihole_stats.sh`, it compares its internal version against the downloaded `version` file.
+* *If an update exists:* You will see a bright **[NEW UPDATE AVAILABLE]** banner at the bottom of your output with a link to the release.
 
-2.  **Dashboard:**
-    The dashboard checks the `version` file every time it loads.
-    * *If an update exists:* An notification link (e.g., `(NEW v4.1)`) will appear in the footer next to the version number.
+
+2. **Dashboard:**
+The dashboard checks the `version` file every time it loads.
+* *If an update exists:* An notification link (e.g., `(NEW v4.2)`) will appear in the footer next to the version number.
+
+
 
 ### ⚡ How to Upgrade
+
 When you see a notification, you update the system manually by running the installer command again. It detects your existing setup and performs a "Safe Upgrade" (keeping your config and history intact).
 
 ```bash
 curl -sL [https://github.com/panoc/pihole-latency-stats/releases/latest/download/install_phls.sh](https://github.com/panoc/pihole-latency-stats/releases/latest/download/install_phls.sh) | sudo bash
+
 
 ```
 
@@ -489,21 +518,19 @@ The project includes a dedicated uninstaller generated during installation. This
 
 * **Location:** `~/phls/phls_uninstall.sh`
 * **How to Run:**
+
 ```bash
 sudo ~/phls/phls_uninstall.sh
 
-```
 
+```
 
 * **What it Removes:**
 * The `~/phls/` directory and all scripts.
 * The Dashboard files from the web server directory.
 * **All Cron Jobs:** It scans your crontab and removes every entry associated with PHLS (including sub-minute sleep loops).
 * **Databases:** Removes the profile registry and history files.
-
-
-
-> **⚠️ Warning:** Running the uninstaller **permanently deletes** your historical latency data (`.h.json` files). If you wish to keep your data, backup the `json` files before running this script.
+* **History Preservation:** The uninstaller will ask if you want to keep your historical data (`.h.json` files). If you select **No**, they are permanently deleted.
 
 ```
 
@@ -511,6 +538,7 @@ sudo ~/phls/phls_uninstall.sh
 1.  **Correction:** Clarified that `phls_version_check.sh` only downloads the `version` file, it does *not* download the code.
 2.  **Correction:** Defined the "Notification" flow. `pihole_stats.sh` reads the local file to print the banner, it doesn't check the internet itself (making it faster/safer).
 3.  **Upgrade Path:** Added the instruction that the user must run the installer again to actually apply the update.
+
 
 ```
 
@@ -539,3 +567,7 @@ sudo ~/phls/phls_uninstall.sh
 **Problem: Dashboard shows "Profile Default" but I want "Gaming".**
 
 * **Fix:** You must modify the URL manually: `dash.html?p=gaming`. There is no menu in the dashboard to switch profiles yet; you must know the name.
+
+```
+
+```
