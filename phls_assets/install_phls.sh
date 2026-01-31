@@ -24,18 +24,16 @@
 
 
 # --- VERSION TRACKING ---
-VERSION="v4.0"
+VERSION="v4.1"
 
 # --- CONFIGURATION: URLs ---
 BASE_URL="https://github.com/panoc/pihole-latency-stats/releases/latest/download"
-# BASE_URL="https://raw.githubusercontent.com/panoc/pihole-latency-stats/refs/heads/main/phls_assets/test36"
-
 URL_SCRIPT="$BASE_URL/pihole_stats.sh"
 URL_VERSION="$BASE_URL/version"
 URL_CRON_MAKER="$BASE_URL/cronmaker.sh"
-
 URL_DASH="$BASE_URL/dash.html"
 URL_FAVICON="$BASE_URL/favicon.png"
+
 URL_BOOTSTRAP="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
 URL_CHARTJS="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"
 
@@ -114,6 +112,22 @@ check_and_remove_old_installer() {
     fi
 }
 
+patch_cron_jobs() {
+    # This ensures that users updating their installation automatically
+    # get the mandatory -snap flag added to their existing crontab jobs.
+    local temp_cron=$(mktemp)
+    crontab -l 2>/dev/null > "$temp_cron"
+    
+    if grep -q "# PHLS-ID:" "$temp_cron"; then
+        echo "🔧 Patching existing Cron jobs with security flags..."
+        # If line contains # PHLS-ID: and does NOT contain -snap, insert it
+        sed -i -E '/# PHLS-ID:/ { / -snap/! s|pihole_stats\.sh |pihole_stats.sh -snap | }' "$temp_cron"
+        crontab "$temp_cron"
+        echo "✅ Cron jobs updated."
+    fi
+    rm -f "$temp_cron"
+}
+
 # --- INSTALLATION MODULES ---
 
 create_uninstaller() {
@@ -147,8 +161,35 @@ echo "🧹 Removing Cron Jobs..."
 crontab -l 2>/dev/null | grep -v "# PHLS-ID:" | crontab -
 
 if [ -n "$REMOVE_DASH_PATH" ] && [ -d "$REMOVE_DASH_PATH" ]; then
-    echo "🗑️  Removing Dashboard Directory..."
-    rm -rf "$REMOVE_DASH_PATH"
+    KEEP_HIST=false
+    
+    # Check if history files exist
+    if ls "$REMOVE_DASH_PATH"/*.h.json 1> /dev/null 2>&1; then
+        echo ""
+        echo -e "\033[1;36mFound Dashboard History files.\033[0m"
+        read -p "Do you want to KEEP these history files (*.h.json)? [y/N]: " -r hist_confirm
+        if [[ "$hist_confirm" =~ ^[Yy]$ ]]; then KEEP_HIST=true; fi
+    fi
+
+    if [ "$KEEP_HIST" = true ]; then
+        echo "🗑️  Removing Dashboard App Files (Preserving History)..."
+        
+        # 1. Remove specific application files
+        rm -f "$REMOVE_DASH_PATH/dash.html"
+        rm -f "$REMOVE_DASH_PATH/version"
+        rm -f "$REMOVE_DASH_PATH/favicon.png"
+        rm -f "$REMOVE_DASH_PATH/bootstrap.min.css"
+        rm -f "$REMOVE_DASH_PATH/chart.js"
+        
+        # 2. Remove transient snapshots (*.json) BUT EXCLUDE history (*.h.json)
+        # We use 'find' to safely distinguish between dash.json and dash.h.json
+        find "$REMOVE_DASH_PATH" -maxdepth 1 -type f -name "*.json" ! -name "*.h.json" -delete
+        
+        echo "✅ Dashboard application removed. History files kept in: $REMOVE_DASH_PATH"
+    else
+        echo "🗑️  Removing Dashboard Directory..."
+        rm -rf "$REMOVE_DASH_PATH"
+    fi
 fi
 
 echo "🗑️  Removing PHLS Directory..."
@@ -157,6 +198,48 @@ echo "✅ Done."
 EOF
     chmod +x "$UNINSTALLER_PATH"
     fix_perms "$UNINSTALLER_PATH"
+}
+
+deploy_updater_script() {
+    # This function creates the updater script regardless of scheduling choice
+    UPDATER_SCRIPT="$FINAL_INSTALL_DIR/phls_version_check.sh"
+    
+    # Use global FINAL_DASH_DIR variable
+    TARGET_DASH_DIR=""
+    [ "$DO_INSTALL_DASH" = true ] && TARGET_DASH_DIR="$FINAL_DASH_DIR"
+
+    cat <<EOF > "$UPDATER_SCRIPT"
+#!/bin/bash
+# PHLS Version Auto-Checker
+INSTALL_DIR="$FINAL_INSTALL_DIR"
+DASH_DIR="$TARGET_DASH_DIR"
+URL_VERSION="$URL_VERSION"
+
+if [ -d "\$INSTALL_DIR" ]; then
+    curl -sL "\$URL_VERSION" -o "\$INSTALL_DIR/version" 2>/dev/null
+    if [ -n "\$DASH_DIR" ] && [ -d "\$DASH_DIR" ] && [ -f "\$INSTALL_DIR/version" ]; then
+        cp "\$INSTALL_DIR/version" "\$DASH_DIR/version"
+        chown www-data:www-data "\$DASH_DIR/version" 2>/dev/null
+        chmod 644 "\$DASH_DIR/version" 2>/dev/null
+    fi
+fi
+EOF
+    chmod +x "$UPDATER_SCRIPT"
+    fix_perms "$UPDATER_SCRIPT"
+    log_file "SCRIPT" "$UPDATER_SCRIPT"
+}
+
+schedule_updater_cron() {
+    echo "----------------------------------------"
+    echo "Scheduling Auto-Update..."
+    UPDATER_SCRIPT="$FINAL_INSTALL_DIR/phls_version_check.sh"
+    REQUIRED_PATH="export PATH=\$PATH:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin;"
+    CRON_CMD="$REQUIRED_PATH $UPDATER_SCRIPT # PHLS-ID:updater"
+    
+    # Update Cron
+    EXISTING_CRON=$(crontab -l 2>/dev/null | grep -v "# PHLS-ID:updater")
+    echo -e "$EXISTING_CRON\n0 0 */3 * * $CRON_CMD" | crontab -
+    echo "✅ Auto-Update scheduled (Runs every 3 days)."
 }
 
 install_core() {
@@ -174,6 +257,23 @@ install_core() {
 
     # Reset Config if Clean Install
     if [ "$IS_CLEAN_INSTALL" = true ]; then
+        echo "🧹 Preparing Clean Install..."
+        
+        # --- PRESERVE DASHBOARD HISTORY CHECK ---
+        # Check if the known dashboard dir contains JSON files
+        if [ -d "$FINAL_DASH_DIR" ] && ls "$FINAL_DASH_DIR"/*.json 1> /dev/null 2>&1; then
+            echo ""
+            echo -e "\033[1;33m⚠️  Found existing Dashboard History (JSON files).\033[0m"
+            echo "   You are about to wipe configurations and cron jobs."
+            if ask_yn "Do you want to PRESERVE the dashboard history? (Say NO to wipe it)"; then
+                echo "✅ History preserved."
+            else
+                echo "🗑️  Deleting dashboard history..."
+                rm -f "$FINAL_DASH_DIR"/*.json
+            fi
+            echo ""
+        fi
+
         echo "🧹 Cleaning old configuration..."
         rm -f "$FINAL_INSTALL_DIR/pihole_stats.conf"
         rm -rf "$FINAL_INSTALL_DIR/cron"
@@ -218,50 +318,17 @@ install_core() {
     create_uninstaller
 
     # --- AUTO UPDATER SETUP ---
-    # Only ask if clean install OR if the updater script is missing
-    if [ "$IS_CLEAN_INSTALL" = true ] || [ ! -f "$FINAL_INSTALL_DIR/phls_version_check.sh" ]; then
+    # 1. Always deploy the script
+    deploy_updater_script
+
+    # 2. Ask to Schedule Cron
+    HAS_UPDATER_CRON=$(crontab -l 2>/dev/null | grep "# PHLS-ID:updater")
+    
+    if [ "$IS_CLEAN_INSTALL" = true ] || [ -z "$HAS_UPDATER_CRON" ]; then
         if ask_yn "Enable Auto-Update Check? (Checks every 3 days)"; then
-            setup_auto_update
+            schedule_updater_cron
         fi
     fi
-}
-
-setup_auto_update() {
-    echo "----------------------------------------"
-    echo "Configuring Auto-Update..."
-    UPDATER_SCRIPT="$FINAL_INSTALL_DIR/phls_version_check.sh"
-    
-    # Use global FINAL_DASH_DIR variable
-    TARGET_DASH_DIR=""
-    [ "$DO_INSTALL_DASH" = true ] && TARGET_DASH_DIR="$FINAL_DASH_DIR"
-
-    cat <<EOF > "$UPDATER_SCRIPT"
-#!/bin/bash
-# PHLS Version Auto-Checker
-INSTALL_DIR="$FINAL_INSTALL_DIR"
-DASH_DIR="$TARGET_DASH_DIR"
-URL_VERSION="$URL_VERSION"
-
-if [ -d "\$INSTALL_DIR" ]; then
-    curl -sL "\$URL_VERSION" -o "\$INSTALL_DIR/version" 2>/dev/null
-    if [ -n "\$DASH_DIR" ] && [ -d "\$DASH_DIR" ] && [ -f "\$INSTALL_DIR/version" ]; then
-        cp "\$INSTALL_DIR/version" "\$DASH_DIR/version"
-        chown www-data:www-data "\$DASH_DIR/version" 2>/dev/null
-        chmod 644 "\$DASH_DIR/version" 2>/dev/null
-    fi
-fi
-EOF
-    chmod +x "$UPDATER_SCRIPT"
-    fix_perms "$UPDATER_SCRIPT"
-    log_file "SCRIPT" "$UPDATER_SCRIPT"
-
-    REQUIRED_PATH="export PATH=\$PATH:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin;"
-    CRON_CMD="$REQUIRED_PATH $UPDATER_SCRIPT # PHLS-ID:updater"
-    
-    # Update Cron
-    EXISTING_CRON=$(crontab -l 2>/dev/null | grep -v "# PHLS-ID:updater")
-    echo -e "$EXISTING_CRON\n0 0 */3 * * $CRON_CMD" | crontab -
-    echo "✅ Auto-Update scheduled."
 }
 
 install_dashboard() {
@@ -288,9 +355,6 @@ install_dashboard() {
     echo "✅ Dashboard Updated."
 
     # --- SAFETY CHECK: Priming Logic ---
-    # We check if 'dash_default.json' or 'dash_default.h.json' exists.
-    # If they do, we warn the user that running the update might touch them.
-    
     DATA_EXISTS=false
     if [ -f "$FINAL_DASH_DIR/dash_default.json" ] || [ -f "$FINAL_DASH_DIR/dash_default.h.json" ]; then
         DATA_EXISTS=true
@@ -302,15 +366,14 @@ install_dashboard() {
         echo "   Running an immediate update (Prime) typically appends to history,"
         echo "   but running a new script version against old data carries a small risk."
         echo ""
-        if ask_yn "Do you want to run an update check now? (Say NO to preserve data as-is)"; then
+        if ask_yn "Repopulate/Prime dashboard data now ? (Say NO to preserve data as-is)"; then
             echo "📊 Updating dashboard data..."
-            sudo "$FINAL_INSTALL_DIR/pihole_stats.sh" -dash "default" > /dev/null
+            sudo "$FINAL_INSTALL_DIR/pihole_stats.sh" -dash "default" -snap -ucc > /dev/null
             echo "✅ Data updated."
         else
             echo "ℹ️  Skipping data update to protect existing history."
         fi
     
-    # If clean install or no data found, proceed normally
     elif [ "$IS_CLEAN_INSTALL" = true ] || ask_yn "Repopulate/Prime dashboard data now?"; then
         echo "📊 Priming dashboard..."
         sudo "$FINAL_INSTALL_DIR/pihole_stats.sh" -dash "default" > /dev/null
@@ -409,6 +472,11 @@ fix_perms "$FINAL_INSTALL_DIR/$STATE_FILE"
 echo "========================================"
 echo "   Operation Complete!"
 echo "========================================"
+
+# Patch Cron Jobs for safety
+if [ "$DO_INSTALL_CORE" = true ] && [ "$IS_CLEAN_INSTALL" = false ]; then
+    patch_cron_jobs
+fi
 
 if [ "$DO_INSTALL_DASH" = true ]; then
     PIHOLE_IP=$(hostname -I | awk '{print $1}')
