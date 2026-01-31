@@ -60,8 +60,8 @@ Includes a modern, responsive browser dashboard powered by **Chart.js**.
 
 *Features: Auto-refresh, Dark Mode, Historical Trends, and Multi-Profile support.*
 
-<a href="https://raw.githubusercontent.com/panoc/pihole-latency-stats/main/assets/dash_ss_1280.jpg" target="_blank">
-<img src="https://raw.githubusercontent.com/panoc/pihole-latency-stats/main/assets/dash_ss_1280.jpg" alt="Dashboard Screenshot" width="100%" style="border-radius: 6px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
+<a href="https://raw.githubusercontent.com/panoc/pihole-latency-stats/main/assets/phls_gif_small.gif" target="_blank">
+<img src="https://raw.githubusercontent.com/panoc/pihole-latency-stats/main/assets/phls_gif_small.gif" alt="Dashboard Screenshot" width="100%" style="border-radius: 6px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
 </a>
 
 ---
