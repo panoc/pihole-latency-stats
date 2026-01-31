@@ -24,7 +24,7 @@
 
 
 # --- VERSION TRACKING ---
-VERSION="v4.1"
+VERSION="v4.2.0"
 
 # --- CONFIGURATION: URLs ---
 BASE_URL="https://github.com/panoc/pihole-latency-stats/releases/latest/download"
