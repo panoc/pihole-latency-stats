@@ -9,7 +9,7 @@
   </p>
 </div>
 
-**Pi-hole Latency Stats** is a lightweight, zero-dependency Bash script that analyzes your **Pi-hole**'s performance. It calculates latency percentiles (Median, 95th), groups query speeds into "Tiers" (buckets), and—optionally—monitors your **Unbound** recursive DNS server statistics and memory usage.
+**Pi-hole Latency Stats** is a lightweight, zero-dependency Bash script that analyzes your **Pi-hole**'s performance. It calculates latency percentiles (Median, 95th), groups query speeds into "Tiers" (buckets), monitors your **Unbound** recursive DNS server, and presents everything in a **modern, responsive web dashboard**.
 
 This tool helps you answer: *"Is my DNS slow because of my upstream provider, or is it just my local network?"* and *"Is Unbound performing efficiently?"*
 
