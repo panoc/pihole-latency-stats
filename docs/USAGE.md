@@ -330,79 +330,104 @@ The `pihole_stats.conf` file allows you to set permanent defaults so you don't h
 
 ```bash
 # ================= PI-HOLE STATS CONFIGURATION =================
+# This file controls both the CLI behavior and the Dashboard generation.
 
-# --- Database Location ---
-# Path to your Pi-hole FTL database.
-DBfile="/etc/pihole/pihole-FTL.db"
-# Safety: Prevent scanning more than X days to avoid RAM exhaustion.
-MAX_DB_DAYS="91"
+# ------------------------------------------------------------------
+# --- SHARED SETTINGS (Affects BOTH CLI & Dashboard) ---
+# ------------------------------------------------------------------
 
-# --- Output Directories ---
-# Default directories for manual reports (using -j or -f).
-# Leave empty "" to save in the current directory.
-SAVE_DIR_TXT=""
-SAVE_DIR_JSON=""
+# Path to Pi-hole's FTL database
+DBfile=
 
-# --- DEFAULT FILENAMES --- 
-TXT_NAME="stats.txt"
-JSON_NAME="stats.json"
+# Unbound Integration
+# auto  : Check if Unbound is installed & used by Pi-hole.
+# true  : Always append Unbound stats.
+# false : Never show Unbound stats (unless -unb is used).
+ENABLE_UNBOUND=
 
-# --- Dashboard Settings ---
-# Directory where the web dashboard files are stored.
-DASH_DIR="/var/www/html/admin/img/dash"
+# --- GLOBAL PERFORMANCE ---
+# Max Database Days to Query
+# Limits "All Time" queries to X days to prevent crashes on slow hardware.
+# Default: 91 (Matches Pi-hole v6 default)
+MAX_DB_DAYS=
 
-# Max entries for history graphs (8640 = 30 days at 5min intervals).
-MAX_HISTORY_ENTRIES="8640"
+# ENABLE_MATH_ALL_TIME:
+#   true  : Calculates Median & P95 for the main report (Slower ~14s on Pi Zero).
+#   false : Fast mode. Shows Avg/StdDev only (Fast ~2s).
+#   This affects both the Text Report and the Dashboard's "All Time" tab and depends on MAX_DB_DAY.
+ENABLE_MATH_ALL_TIME=
 
-# --- Auto-Delete ---
-# Delete reports older than X days (leave empty to disable).
-MAX_LOG_AGE=""
+# Latency Tiers (Upper Limits in Milliseconds)
+# Add more values (L09, L10...) to create granular buckets for analysis. Values are in ms.
+L01=
+L02=
+L03=
+.
+.
+L20=
 
-# --- Unbound Integration ---
-# auto  : Check if Unbound is running.
-# true  : Always show Unbound stats.
-# false : Never show Unbound stats.
-ENABLE_UNBOUND="auto"
+# Latency Cutoffs (Optional)
+# Ignore queries faster than MIN or slower than MAX (in ms).
+MIN_LATENCY_CUTOFF="$MIN_LATENCY_CUTOFF"
+MAX_LATENCY_CUTOFF="$MAX_LATENCY_CUTOFF"
 
-# --- Visual Layout for CLI ---
-# auto        : Detects terminal width.
-# vertical    : Standard list view.
-# horizontal : Split-pane view.
-LAYOUT="auto"
+# ------------------------------------------------------------------
+# --- DASHBOARD-ONLY SETTINGS (Used only with -dash flag) ---
+# ------------------------------------------------------------------
 
-# --- Default Time Range ---
-# Optional: Set a default lookback period (e.g., "yesterday", "today 00:00").
-# CLI flags like -24h will override this.
-DEFAULT_FROM=""
-DEFAULT_TO=""
+# Dashboard Directory (Where dash.html lives)
+# Default: /var/www/html/admin/img/dash
+DASH_DIR=
 
-# --- HARD ARGUMENTS ---
-# Any flags placed here are injected into the script automatically.
-# This is how Profiles are differentiated (e.g., Profile A has CONFIG_ARGS='-up', Profile B has '-pi').
-CONFIG_ARGS=""
+# Max History Entries for Dashboard Graph
+# 8640 entries = 30 days @ 5 min interval.
+MAX_HISTORY_ENTRIES=
 
-# --- UPSTREAM DISTRIBUTION SETTINGS ---
-# Enable specific latency analysis for Upstream queries (Status 2, 6, 7, 8)
-ENABLE_UPSTREAM_DIST="true"
-# Cutoff (in ms) to exclude cached replies from upstream stats (default 3ms)
-UPSTREAM_DIST_MIN_CUTOFF="3"
+# --- DASHBOARD PERFORMANCE (Windowed Math) ---
+# Enable/Disable Median & P95 calculation for specific time buttons.
+# Disabling these saves CPU time during dashboard generation.
+# These settings have NO EFFECT on the manual CLI report.
+ENABLE_MATH_12H=
+ENABLE_MATH_24H=
+ENABLE_MATH_7D=
+ENABLE_MATH_30D=
 
-# --- Latency Tiers (Upper Limits in Milliseconds) ---
-# These values (in milliseconds) define the "Tiers" shown in the distribution graph.
-# You can customize these to match your network expectations.
-L01="0.009"
-L02="0.1"
-L03="1"
-L04="10"
-L05="50"
-# ... up to L20 ...
-L10="1000"   # Timeout / Packet Loss
+# --- UPSTREAM HISTORY GRAPH ---
+# Master Switch: Enable/Disable the calculation of upstream-specific stats.
+# If false, no data is generated, math is skipped, and the card is hidden.
+ENABLE_UPSTREAM_DIST="$ENABLE_UPSTREAM_DIST"
 
-# --- Latency Cutoffs ---
-# Ignore queries faster than MIN or slower than MAX (in milliseconds).
-# Useful to exclude cached (0.1ms) or timeouts.
-MIN_LATENCY_CUTOFF=""
-MAX_LATENCY_CUTOFF=""
+# Enable "All Time" Median/P95 for Upstream graph (CPU Intensive).
+# Set to false to see All-Time bars/average but skip the heavy sorting.
+ENABLE_UPSTREAM_MATH_ALL_TIME="$ENABLE_UPSTREAM_MATH_ALL_TIME"
+
+# ------------------------------------------------------------------
+# --- CLI-ONLY SETTINGS (Used only when running manually) ---
+# ------------------------------------------------------------------
+
+# Visual Layout
+# auto       : Detects terminal width. >100 columns = Horizontal, else Vertical.
+# vertical   : Forces standard vertical list view.
+# horizontal : Forces split-pane dashboard view.
+LAYOUT=
+
+# Default Save Directories (REQUIRED for Auto-Deletion to work)
+# Separate directories for Text and JSON reports.
+# If left empty, files are saved in the current directory.
+SAVE_DIR_TXT=
+SAVE_DIR_JSON=
+
+# Default Filenames (If set, the -f/-j flag is no longer required)
+TXT_NAME=
+JSON_NAME=
+
+# Auto-Delete Old Reports (Retention Policy)
+# Delete files in SAVE_DIR_TXT and SAVE_DIR_JSON older than X days.
+MAX_LOG_AGE=
+
+# [OPTIONAL] Default Arguments
+# If set, these arguments will REPLACE any CLI flags.
+CONFIG_ARGS=
 
 
 ```
