@@ -36,7 +36,8 @@ This tool helps you answer: *"Is my DNS slow because of my upstream provider, or
 
 ## Requirements
 
-* `sqlite3` (usually installed by default)
+* `sqlite3`
+* `httpd` 
 * *(Optional)* `unbound` and `unbound-host` (for Unbound statistics)
 
 ---
