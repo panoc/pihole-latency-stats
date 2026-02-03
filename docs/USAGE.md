@@ -1,7 +1,5 @@
 # 📘 Pi-hole Latency Stats (PHLS) v4.2.0 - Technical Manual
 
-**Version:** 4.2.0
-
 **Release Date:** 2026-01-31
 
 **Architecture:** Parallel Processing / Profile-Based / Historical Monitoring
