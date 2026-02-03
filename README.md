@@ -47,7 +47,7 @@ This tool helps you answer: *"Is my DNS slow because of my upstream provider, or
 To install the core script, the web dashboard, and all required dependencies, run:
 
 ```bash
-wget -O install_phls.sh https://github.com/panoc/pihole-latency-stats/releases/latest/download/install_phls.sh && sudo bash install_phls.sh
+curl -fL -o install_phls.sh https://github.com/panoc/pihole-latency-stats/releases/latest/download/install_phls.sh && sudo bash install_phls.sh
 
 ```
 
