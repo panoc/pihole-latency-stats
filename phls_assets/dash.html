@@ -1250,11 +1250,17 @@ function fillDataGaps(data) {
     return filledData;
 }
 
+// History times are the server's local time without a time zone (and are shown that way). To cut
+// "the last 12 hours" correctly when the browser is in another time zone, "now" must be the
+// server's local time too: browser time + clock difference + time-zone difference (from "epoch").
+let tzShiftMs = 0;
+function serverLocalNow() { return new Date(Date.now() + (schedState ? schedSkew * 1000 : 0) + tzShiftMs); }
+
 /** Filter data based on time selection (12h, 24h, etc) */
 function getFilteredData(key) {
     if (!fullHistoryData.length) return [];
     const mode = AppState.charts[key].mode;
-    const now = new Date();
+    const now = serverLocalNow();
     let rawData = fullHistoryData;
 
     if (mode === '12h') rawData = fullHistoryData.filter(d => safeDate(d.date) >= new Date(now - 43200000));
@@ -2046,7 +2052,9 @@ function runStaleCheck(data) {
     const ints = [];
     for(let i=1; i<sample.length; i++) ints.push((safeDate(sample[i].date)-safeDate(sample[i-1].date))/60000);
     ints.sort((a,b)=>a-b);
-    const diff = (Date.now() - safeDate(data.date).getTime())/60000;
+    // "date" is the server's local time without a time zone, so with the browser in another time zone
+    // it would look hours old: use "epoch" (and the server's clock when known) instead
+    const diff = (serverLocalNow().getTime() - safeDate(data.date).getTime()) / 60000;
     if (diff > Math.max(ints[Math.floor(ints.length/2)]*3, 5)) 
         $('header_date').innerHTML = `⚠️ <span style="color:var(--acc-red); font-weight:bold;">DATA STALE: (Last run: ${Math.round(diff)} mins ago)</span>`;
 }
@@ -2074,6 +2082,8 @@ async function fetchData() {
 
         // UI Updates
         setTxt('header_date', "Last Analysis: " + data.date);
+        // server time-zone difference: its local time ("date") minus the true time ("epoch")
+        if (typeof data.epoch === 'number') tzShiftMs = Math.round((safeDate(data.date).getTime() - data.epoch * 1000) / 60000) * 60000;
         setTxt('time_period', data.time_period || "All Time");
         setTxt('query_mode', data.mode || "Normal");
         setTxt('script-v-num', data.version || "Unknown");
@@ -2138,7 +2148,8 @@ async function fetchData() {
             // 2. Fetch History (several MB) only when a new analysis has run
             const hResp = await fetch(`dash_${profile}.h.json`, { cache: 'no-cache' });
             if (hResp.ok) {
-                fullHistoryData = await hResp.json();
+                const h = await hResp.json();
+                fullHistoryData = Array.isArray(h) ? h.filter(d => d && typeof d.date === 'string') : [];   // skip damaged entries
                 ['lat','unb','eff','mem','up'].forEach(k => renderGenericHistory(k));
                 isFirstLoad = false;
                 lastSnapshotDate = data.date;

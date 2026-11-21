@@ -615,7 +615,7 @@ show_help() {
     echo "  -from, -to         : Custom date range (e.g. 'yesterday', '2023-01-01')"
     echo "  -up                : Upstream Only (Status 2, 6, 7, 8)"
     echo "  -pi                : Pi-hole Only (Status 3, 12, 13, 14, 15)"
-    echo "  -nx                : Exclude Blocked Queries"
+    echo "  -nx                : Leave out special-domain and stale-cache replies (status 16, 17)"
     echo "  -dm [string]       : Filter by domain (wildcards: * = %, ? = _)"
     echo "  -edm [string]      : Exact domain match (subdomains included)"
     echo "  -xdm [string]      : Exactly this domain (no subdomains)"
@@ -1933,7 +1933,10 @@ print_text_report() {
 
 print_json_report() {
     CURRENT_DATE=$(date "+%Y-%m-%d %H:%M:%S")
-    JSTR="{\"version\": \"$VERSION\", \"hostname\": \"${HOSTNAME:-$(hostname)}\", \"date\": \"$CURRENT_DATE\", \"time_period\": \"$TIME_LABEL\", \"mode\": \"$MODE_LABEL\""
+    local CURRENT_EPOCH; printf -v CURRENT_EPOCH '%(%s)T' -1
+    # "date" is the server's local time (no time zone); "epoch" lets the dashboard compare times
+    # correctly when the browser is in another time zone
+    JSTR="{\"version\": \"$VERSION\", \"hostname\": \"${HOSTNAME:-$(hostname)}\", \"date\": \"$CURRENT_DATE\", \"epoch\": $CURRENT_EPOCH, \"time_period\": \"$TIME_LABEL\", \"mode\": \"$MODE_LABEL\""
     if [ -n "$DOMAIN_FILTER" ]; then JSTR="$JSTR, \"domain_filter\": \"$DOMAIN_FILTER\""; fi
     JSTR="$JSTR, \"stats\": {\"total_queries\": $P_TOTAL, \"unsuccessful\": $P_INVALID, \"total_valid\": $P_VALID, \"blocked\": $P_BLOCKED, \"ignored\": $P_IGNORED, \"analyzed\": $P_ANALYZED}"
     # Global Health (All Time)
