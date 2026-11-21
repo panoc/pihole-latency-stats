@@ -1,0 +1,110 @@
+# Make a PHLS release from the GitHub website:
+#   Actions -> "Make release" -> Run workflow -> type the version (e.g. 5.0.1) -> Run workflow
+#
+# It writes the version into every file (release.sh), saves that change in the repository,
+# builds install_phls.sh + phls_assets.tar.gz + phls_assets.tar.gz.sha256 and publishes them
+# as a GitHub release with the tag v<version>. Installs see the new version within a day.
+# A beta (beta number filled in) is published as a pre-release: installs are NOT told about it.
+name: Make release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version, e.g. 5.0.1"
+        required: true
+        type: string
+      beta:
+        description: "Beta number (leave empty for a normal release; a beta is published as a pre-release)"
+        required: false
+        default: ""
+        type: string
+      dash:
+        description: "Dashboard version, e.g. 3.0.1 (leave empty to keep the current one)"
+        required: false
+        default: ""
+        type: string
+      notes:
+        description: "What changed (optional; shown on the release page)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: make-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the repository
+        uses: actions/checkout@v4
+
+      - name: Write the version and build the release files
+        env:
+          VER: ${{ inputs.version }}
+          BETA: ${{ inputs.beta }}
+          DASH: ${{ inputs.dash }}
+        run: |
+          VER="${VER// /}"; VER="${VER#[vV]}"; BETA="${BETA// /}"; DASH="${DASH// /}"; DASH="${DASH#[vV]}"
+          args=("$VER")
+          [ -n "$DASH" ] && args+=(--dash "$DASH")
+          [ -n "$BETA" ] && args+=(--beta "$BETA")
+          bash release.sh "${args[@]}"
+          TAG="v$VER"; [ -n "$BETA" ] && TAG="v$VER-beta.$BETA"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "IS_BETA=$([ -n "$BETA" ] && echo yes || echo no)" >> "$GITHUB_ENV"
+
+      - name: Stop if this release already exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::A release $TAG already exists. Use a higher version number."
+            exit 1
+          fi
+
+      - name: Save the new version number in the repository
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add phls_assets
+          if git diff --cached --quiet; then
+            echo "The files already carry this version: nothing to commit."
+          else
+            git commit -m "Release $TAG"
+            git push
+          fi
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES: ${{ inputs.notes }}
+        run: |
+          {
+            [ -n "$NOTES" ] && printf '%s\n\n' "$NOTES"
+            if [ "$IS_BETA" = yes ]; then
+              echo "**Test version (pre-release).** Installs are not told about it."
+              echo
+              echo "Install this beta: download the 3 files below to the Pi, then"
+              echo '```'
+              echo "sudo bash install_phls.sh --local phls_assets.tar.gz"
+              echo '```'
+            else
+              echo "**Install, or update from PHLS v4:**"
+              echo '```'
+              echo "curl -sSL https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/install_phls.sh | sudo bash"
+              echo '```'
+              echo "**Already on 5.0 or newer:** the dashboard (⚙ Manage → PHLS → Update), or \`sudo phls update\`."
+            fi
+          } > notes.md
+          flags=(); [ "$IS_BETA" = yes ] && flags+=(--prerelease)
+          gh release create "$TAG" \
+            release/install_phls.sh release/phls_assets.tar.gz release/phls_assets.tar.gz.sha256 \
+            --title "PHLS ${TAG#v}" --notes-file notes.md --target "$(git rev-parse HEAD)" "${flags[@]}"
+          echo "### Published $TAG" >> "$GITHUB_STEP_SUMMARY"
+          echo "https://github.com/${GITHUB_REPOSITORY}/releases/tag/$TAG" >> "$GITHUB_STEP_SUMMARY"
