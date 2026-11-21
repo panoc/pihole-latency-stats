@@ -17,7 +17,7 @@
 # Author: panoc - https://github.com/panoc/pihole-latency-stats - GPLv3
 # ==============================================================================
 PHLS_VERSION="5.0.0"
-PHLS_BUILD="beta.22"
+PHLS_BUILD=""
 
 SELF="$(readlink -f "${BASH_SOURCE[0]}")"
 SELF_DIR="$(dirname "$SELF")"
