@@ -22,7 +22,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 # ==============================================================================
 
-VERSION="v5.0.0"
+VERSION="v5.0.1"
 UPSTREAM_DIST_MIN_CUTOFF="4"  # Minimum latency (ms) for the Upstream Graph
 UPDATE_MSG=""
 
