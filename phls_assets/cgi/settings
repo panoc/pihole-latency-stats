@@ -1,0 +1,329 @@
+#!/bin/bash
+# PHLS dashboard settings endpoint (CGI, runs as www-data under PHLS's own lighttpd).
+#
+#   GET  /api/settings?p=<profile>   -> current settings of a profile + what can be changed
+#   GET  ?action=overview            -> version, profiles, last action
+#   GET  ?action=sched&p=<profile>   -> next scheduled run / running now (header countdown)
+#   GET  ?action=report&p=<profile>  -> last text report of a report profile
+#   POST /api/settings               -> action=save, p=<profile>, password=<Pi-hole password>,
+#                                       [totp=<2FA code>], set_<KEY>=<value> ...
+#
+# Saving never touches the real configuration: the checked changes are written to
+# /var/lib/phls/pending/<profile>.conf, and `phls apply` (root, started by systemd as soon as the
+# file appears) checks every value again, applies it and reruns the analysis.
+# The password is checked by Pi-hole's own API on this machine (127.0.0.1); it is never stored.
+
+export LC_ALL=C PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+. /opt/phls/lib/settings.sh || exit 1
+
+AUTH_INFO="$PHLS_STATUS/pihole_auth"     # written by root: password=yes|no localauth=yes|no
+MAX_BODY=16384
+
+json_str() {   # JSON string literal
+    local s="$1"
+    s="${s//\\/\\\\}"; s="${s//\"/\\\"}"; s="${s//$'\n'/\\n}"; s="${s//$'\r'/}"; s="${s//$'\t'/ }"
+    printf '"%s"' "$s"
+}
+
+reply() {   # reply <http status> <json body>
+    case "$1" in
+        200) printf 'Status: 200 OK\r\n' ;;
+        400) printf 'Status: 400 Bad Request\r\n' ;;
+        401) printf 'Status: 401 Unauthorized\r\n' ;;
+        403) printf 'Status: 403 Forbidden\r\n' ;;
+        405) printf 'Status: 405 Method Not Allowed\r\n' ;;
+        429) printf 'Status: 429 Too Many Requests\r\n' ;;
+        *)   printf 'Status: 500 Internal Server Error\r\n' ;;
+    esac
+    printf 'Content-Type: application/json\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n\r\n%s\n' "$2"
+    exit 0
+}
+fail() { reply "$1" "{\"ok\":false,\"error\":$(json_str "$2")}"; }
+
+urldecode() {   # %XX and + -> raw bytes (the result is validated afterwards)
+    local s="${1//+/ }"
+    s="${s//\\/\\\\}"
+    printf -v s '%b' "${s//%/\\x}"
+    printf '%s' "$s"
+}
+
+# Parse "a=1&b=2" into the associative array F
+declare -A F
+parse_pairs() {
+    local IFS='&' pair k v
+    for pair in $1; do
+        [ -z "$pair" ] && continue
+        k=$(urldecode "${pair%%=*}"); v=""
+        [[ "$pair" == *=* ]] && v=$(urldecode "${pair#*=}")
+        [[ "$k" =~ ^[A-Za-z0-9_]{1,64}$ ]] || continue
+        F["$k"]="$v"
+    done
+}
+
+profile_file() { printf '%s/%s.conf' "$PHLS_PROFILES" "$1"; }
+
+list_profiles() {
+    local f first=1
+    printf '['
+    for f in "$PHLS_PROFILES"/*.conf; do
+        [ -e "$f" ] || continue
+        f="${f##*/}"; f="${f%.conf}"
+        phls_valid_profile_name "$f" || continue
+        [ $first -eq 0 ] && printf ','; first=0
+        json_str "$f"
+    done
+    printf ']'
+}
+list_types() {   # {"name":"dashboard|report",...}
+    local f first=1
+    printf '{'
+    for f in "$PHLS_PROFILES"/*.conf; do
+        [ -e "$f" ] || continue
+        f="${f##*/}"; f="${f%.conf}"
+        phls_valid_profile_name "$f" || continue
+        [ $first -eq 0 ] && printf ','; first=0
+        printf '%s:"%s"' "$(json_str "$f")" "$(phls_profile_type "$f")"
+    done
+    printf '}'
+}
+
+# Is a run of this profile going on? (marker written by `phls run`; stale after 30 min = killed run)
+is_running() {
+    local m="$PHLS_STATUS/running_$1" t
+    [ -s "$m" ] || return 1
+    t=$(head -c 20 "$m" | tr -dc 0-9); [ -n "$t" ] && [ $(( $(date +%s) - t )) -lt 1800 ]
+}
+
+# Header countdown: next scheduled run, running now, last run
+get_sched() {
+    local p="$1" f nx="null" run="null" every
+    f=$(profile_file "$p")
+    every=$(phls_value "$f" RUN_EVERY)
+    [ "$(phls_profile_type "$p")" = dashboard ] && [ -s "$PHLS_STATUS/next_$p.json" ] && nx=$(head -c 256 "$PHLS_STATUS/next_$p.json" | sed -n 's/.*"next":\([0-9]*\).*/\1/p')
+    [ -s "$PHLS_STATUS/run_$p.json" ] && run=$(head -c 512 "$PHLS_STATUS/run_$p.json")
+    printf '{"ok":true,"type":"%s","now":%s,"next":%s,"every":%s,"running":%s,"last_run":%s}' \
+        "$(phls_profile_type "$p")" "$(date +%s)" "${nx:-null}" "$(json_str "$every")" "$(is_running "$p" && echo true || echo false)" "$run"
+}
+
+# Last text report of a report profile (download=1: as a file, named by the dashboard)
+get_report() {
+    local p="$1" r="$PHLS_LIB/reports/$1.txt"
+    if [ "${F[download]}" = "1" ]; then
+        local name="${F[name]}"; [[ "$name" =~ ^[A-Za-z0-9._-]{1,100}\.txt$ ]] || name="phls_$p.txt"
+        [ -s "$r" ] || fail 400 "No report yet"
+        printf 'Status: 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Disposition: attachment; filename="%s"\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n\r\n' "$name"
+        head -c 262144 "$r"
+        exit 0
+    fi
+    [ -s "$r" ] || reply 200 '{"ok":true,"time":null,"text":""}'
+    reply 200 "{\"ok\":true,\"time\":$(stat -c %Y "$r"),\"text\":$(json_str "$(head -c 262144 "$r")")}"
+}
+
+get_settings() {
+    local p="$1" conf l key typ min max group label help first=1 st="null" pend=false
+    conf=$(profile_file "$p")
+    [ -r "$conf" ] || fail 400 "Unknown profile"
+    [ -s "$PHLS_STATUS/apply_$p.json" ] && st=$(head -c 4096 "$PHLS_STATUS/apply_$p.json")
+    [ -e "$PHLS_PENDING/$p.conf" ] && pend=true
+    local auth="pihole"
+    if [ -r "$AUTH_INFO" ]; then
+        grep -q 'password=no' "$AUTH_INFO" && auth="none"
+        grep -q 'localauth=no' "$AUTH_INFO" && auth="unavailable"
+    fi
+    printf '{"ok":true,"profile":%s,"profile_type":"%s","profiles":%s,"types":%s,"auth":"%s","pending":%s,"status":%s,"schema":[' \
+        "$(json_str "$p")" "$(phls_profile_type "$p")" "$(list_profiles)" "$(list_types)" "$auth" "$pend" "$st"
+    for l in "${PHLS_SCHEMA[@]}"; do
+        IFS='|' read -r key typ min max group label help <<< "$l"
+        [ $first -eq 0 ] && printf ','; first=0
+        printf '{"key":"%s","type":"%s","min":%s,"max":%s,"group":%s,"label":%s,"help":%s,"scope":"%s"}' \
+            "$key" "$typ" "$(json_str "$min")" "$(json_str "$max")" "$(json_str "$group")" "$(json_str "$label")" "$(json_str "$help")" "$(phls_scope "$key")"
+    done
+    printf '],"values":{'
+    first=1
+    for l in "${PHLS_SCHEMA[@]}"; do
+        key="${l%%|*}"
+        local v; v=$(phls_value "$conf" "$key")
+        [ $first -eq 0 ] && printf ','; first=0
+        printf '"%s":%s' "$key" "$(json_str "$v")"
+    done
+    printf '}}'
+}
+
+# Ask Pi-hole (on this machine) whether the password is right. Returns 0 if accepted.
+pihole_auth() {
+    local pw="$1" totp="$2" api insecure body resp sid
+    api=$(phls_get "$PHLS_ETC/phls.conf" PIHOLE_API); [ -z "$api" ] && api="http://127.0.0.1/api"
+    insecure=$(phls_get "$PHLS_ETC/phls.conf" PIHOLE_API_INSECURE)
+    local k=(); [ "$insecure" = "true" ] && k=(-k)
+    # JSON body built by hand (no jq on a stock Pi); the password goes through stdin, never argv
+    pw="${pw//\\/\\\\}"; pw="${pw//\"/\\\"}"; pw=$(printf '%s' "$pw" | tr -d '\000-\037')
+    body="{\"password\":\"$pw\""
+    [[ "$totp" =~ ^[0-9]{6}$ ]] && body="$body,\"totp\":$totp"
+    body="$body}"
+    resp=$(printf '%s' "$body" | curl -s "${k[@]}" --max-time 15 -H 'Content-Type: application/json' --data-binary @- "$api/auth" 2>/dev/null)
+    AUTH_MSG=$(printf '%s' "$resp" | sed -n 's/.*"message"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -c 200)
+    [ -z "$resp" ] && { AUTH_MSG="Pi-hole's API did not answer"; return 2; }
+    printf '%s' "$resp" | grep -q '"valid"[[:space:]]*:[[:space:]]*true' || return 1
+    # Log the session out again (Pi-hole allows only a few sessions at a time)
+    sid=$(printf '%s' "$resp" | sed -n 's/.*"sid"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+    if [ -n "$sid" ]; then
+        printf 'X-FTL-SID: %s\n' "$sid" | curl -s "${k[@]}" --max-time 5 -X DELETE -H @- "$api/auth" >/dev/null 2>&1
+    fi
+    return 0
+}
+
+# Pi-hole password check (one at a time, and slow on failure, against guessing)
+require_auth() {
+    local auth="pihole"
+    if [ -r "$AUTH_INFO" ]; then
+        grep -q 'localauth=no' "$AUTH_INFO" && fail 403 "Pi-hole does not check passwords for requests from this machine (webserver.api.localAPIauth is off), so the dashboard cannot verify you. Turn it on in Pi-hole's settings, or use: sudo phls"
+        grep -q 'password=no' "$AUTH_INFO" && auth="none"
+    fi
+    [ "$auth" = "pihole" ] || return 0
+    exec 8> "$PHLS_PENDING/.auth.lock" 2>/dev/null && { flock -w 20 8 || fail 429 "Busy, try again"; }
+    pihole_auth "${F[password]}" "${F[totp]}"
+    case $? in
+        0) ;;
+        2) fail 500 "Could not reach Pi-hole to check the password ($AUTH_MSG)" ;;
+        *) sleep 3; fail 401 "Wrong Pi-hole password${AUTH_MSG:+ ($AUTH_MSG)}" ;;
+    esac
+}
+
+# Overview for the Profiles / PHLS tabs: version, update, profiles with schedule, filter and last run
+get_overview() {
+    local ver build latest f p every filt run first=1 act="null"
+    ver=$(sed -n 's/^PHLS_VERSION="\(.*\)"/\1/p' /opt/phls/phls 2>/dev/null | head -n 1)
+    build=$(sed -n 's/^PHLS_BUILD="\(.*\)"/\1/p' /opt/phls/phls 2>/dev/null | head -n 1)
+    latest=$(sed -n 's/^s=\([0-9.]*\)$/\1/p' "$PHLS_LIB/latest_version" 2>/dev/null | head -n 1)
+    local upd=false
+    [ -n "$latest" ] && [ -n "$ver" ] && [ "$latest" != "$ver" ] && [ "$(printf '%s\n%s\n' "$latest" "$ver" | sort -V | tail -n 1)" = "$latest" ] && upd=true
+    [ -s "$PHLS_STATUS/action.json" ] && act=$(head -c 2048 "$PHLS_STATUS/action.json")
+    local auth="pihole"
+    if [ -r "$AUTH_INFO" ]; then grep -q 'password=no' "$AUTH_INFO" && auth="none"; grep -q 'localauth=no' "$AUTH_INFO" && auth="unavailable"; fi
+    printf '{"ok":true,"version":%s,"build":%s,"latest":%s,"update_available":%s,"auth":"%s","action":%s,"pending":%s,"profiles":[' \
+        "$(json_str "$ver")" "$(json_str "$build")" "$(json_str "$latest")" "$upd" "$auth" "$act" \
+        "$(compgen -G "$PHLS_PENDING/@*.conf" >/dev/null && echo true || echo false)"
+    for f in "$PHLS_PROFILES"/*.conf; do
+        [ -e "$f" ] || continue
+        p="${f##*/}"; p="${p%.conf}"; phls_valid_profile_name "$p" || continue
+        every=$(phls_value "$f" RUN_EVERY); filt=$(phls_value "$f" FILTER_DOMAIN)
+        local extra; extra=$(sed -n "s/^CONFIG_ARGS='\(.*\)'.*/\1/p" "$f" | head -n 1); filt="$filt${extra:+ $extra}"
+        run="null"; [ -s "$PHLS_STATUS/run_$p.json" ] && run=$(head -c 512 "$PHLS_STATUS/run_$p.json")
+        local rt="null"; [ -s "$PHLS_LIB/reports/$p.txt" ] && rt=$(stat -c %Y "$PHLS_LIB/reports/$p.txt")
+        [ $first -eq 0 ] && printf ','; first=0
+        printf '{"name":%s,"type":"%s","every":%s,"filter":%s,"last_run":%s,"report_time":%s,"running":%s}' "$(json_str "$p")" "$(phls_profile_type "$p")" \
+            "$(json_str "${every:-5}")" "$(json_str "$filt")" "$run" "$rt" "$(is_running "$p" && echo true || echo false)"
+    done
+    printf ']}'
+}
+
+# Profile / maintenance actions: checked, then handed to `phls apply` (root) as a request file
+do_action() {
+    local act="$1" p="${F[p]}" filt="${F[filter]}" from="${F[from]:-default}" ptype="${F[type]:-dashboard}" id tmp noauth=false
+    case "$act" in
+        add)
+            phls_valid_profile_name "$p" || fail 400 "Profile name: use letters, digits, - and _ (max 32)"
+            [ -e "$(profile_file "$p")" ] && fail 400 "A profile '$p' already exists"
+            phls_valid_domains "$filt" || fail 400 "Domains: one or more domains separated by commas, each made of letters, digits, . - _ and *, optionally starting with ="
+            [[ "$ptype" == "dashboard" || "$ptype" == "report" ]] || fail 400 "Unknown profile type"
+            phls_valid_profile_name "$from" && [ -r "$(profile_file "$from")" ] || from="default" ;;
+        delete|clear)
+            phls_valid_profile_name "$p" && [ -r "$(profile_file "$p")" ] || fail 400 "Unknown profile" ;;
+        run)
+            phls_valid_profile_name "$p" && [ -r "$(profile_file "$p")" ] || fail 400 "Unknown profile"
+            is_running "$p" && fail 429 "'$p' is running right now"
+            if [ "$(phls_profile_type "$p")" = dashboard ]; then
+                # a normal run needs no password, but at most one request per profile per minute
+                local stamp="$PHLS_PENDING/.runnow_$p"
+                [ -e "$stamp" ] && [ $(( $(date +%s) - $(stat -c %Y "$stamp") )) -lt 60 ] && fail 429 "'$p' was started less than a minute ago"
+                noauth=true
+            fi ;;
+        check-update|update) p="" ;;
+        reset)
+            p=""
+            [ "${F[confirm]}" = "RESET" ] || fail 400 'Type RESET to confirm'
+            [[ "${F[opts]}" =~ ^[a-z,]{1,60}$ ]] || fail 400 "Nothing selected" ;;
+        *) fail 400 "Unknown action" ;;
+    esac
+    compgen -G "$PHLS_PENDING/@*.conf" >/dev/null && fail 429 "Another action is still waiting; try again in a moment"
+    if [ "$noauth" = true ]; then touch "$PHLS_PENDING/.runnow_$p" 2>/dev/null; else require_auth; fi
+    id="$(date +%s)$(od -An -N4 -tx4 /dev/urandom 2>/dev/null | tr -d ' ')"
+    tmp=$(mktemp "$PHLS_PENDING/.act.XXXXXX") || fail 500 "Cannot write the request"
+    local opts=""; [ "$act" = "reset" ] && opts="${F[opts]}"
+    printf 'ACTION="%s"\nPROFILE="%s"\nFILTER="%s"\nFROM="%s"\nTYPE="%s"\nOPTS="%s"\n' "$act" "$p" "$filt" "$from" "$ptype" "$opts" > "$tmp" && chmod 640 "$tmp" \
+        && mv -f "$tmp" "$PHLS_PENDING/@$id.conf" || { rm -f "$tmp"; fail 500 "Cannot write the request"; }
+    reply 200 "{\"ok\":true,\"id\":\"$id\"}"
+}
+
+save_settings() {
+    local p="${F[p]}" conf key val why changes="" n=0
+    phls_valid_profile_name "$p" || fail 400 "Invalid profile name"
+    conf=$(profile_file "$p")
+    [ -r "$conf" ] || fail 400 "Unknown profile"
+
+    [ "$p" = default ] && [ "${F[set_PROFILE_TYPE]}" = report ] && fail 400 "The default profile always stays a dashboard profile"
+    # 1. Check every submitted value before asking for the password (cheap errors first)
+    for key in "${!F[@]}"; do
+        [[ "$key" == set_* ]] || continue
+        key="${key#set_}"; val="${F[set_$key]}"
+        why=$(phls_valid "$key" "$val") || fail 400 "$key: $why"
+        [[ "$key" =~ ^L[0-9][0-9]$ ]] && continue                                              # tiers: below
+        [ "$(phls_value "$conf" "$key")" = "$val" ] && continue   # unchanged
+        changes+="$key=\"$val\""$'\n'; n=$((n + 1))
+    done
+    # Tiers can be entered in any order: sort the resulting set and send every tier that moved
+    local l k2 tierline cur
+    if [[ " ${!F[*]} " == *" set_L"[0-9][0-9]" "* ]]; then
+        while IFS= read -r tierline; do
+            l="${tierline%%=*}"; val="${tierline#*=}"; cur=$(phls_get "$conf" "$l")
+            [ "$cur" = "$val" ] && grep -q "^${l}=" "$conf" && continue
+            changes+="$l=\"$val\""$'\n'; n=$((n + 1))
+        done < <(for l in L01 L02 L03 L04 L05 L06 L07 L08 L09 L10 L11 L12 L13 L14 L15 L16 L17 L18 L19 L20; do
+                    if [ -n "${F[set_$l]+x}" ]; then printf '%s=%s\n' "$l" "${F[set_$l]}"; else printf '%s=%s\n' "$l" "$(phls_get "$conf" "$l")"; fi
+                 done | phls_sort_tiers)
+    fi
+    [ "$n" -eq 0 ] && reply 200 '{"ok":true,"changed":0,"message":"Nothing changed."}'
+
+    # 2. Password
+    require_auth
+
+    # 3. Hand the changes to `phls apply` (atomic: temp file + rename)
+    local tmp
+    tmp=$(mktemp "$PHLS_PENDING/.${p}.XXXXXX") || fail 500 "Cannot write pending changes"
+    {
+        echo "# PHLS pending changes for profile $p, $(date '+%F %T') from ${REMOTE_ADDR:-?}"
+        # merge with changes that are still waiting (newer values win)
+        [ -s "$PHLS_PENDING/$p.conf" ] && grep -E '^[A-Z0-9_]+="[^"]*"$' "$PHLS_PENDING/$p.conf" | while IFS= read -r l; do
+            k2="${l%%=*}"; [[ "$changes" == *"$k2=\""* ]] || printf '%s\n' "$l"
+        done
+        printf '%s' "$changes"
+    } > "$tmp" && chmod 640 "$tmp" && mv -f "$tmp" "$PHLS_PENDING/$p.conf" || { rm -f "$tmp"; fail 500 "Cannot write pending changes"; }
+    local m="Saved. Applying and rerunning the analysis…"; [ "$(phls_profile_type "$p")" = report ] && m="Saved. Applying the settings…"
+    reply 200 "{\"ok\":true,\"changed\":$n,\"message\":\"$m\"}"
+}
+
+# ---------------------------------------------------------------------------
+case "$REQUEST_METHOD" in
+    GET|HEAD)
+        parse_pairs "$QUERY_STRING"
+        [ "${F[action]}" = "overview" ] && reply 200 "$(get_overview)"
+        p="${F[p]:-default}"
+        phls_valid_profile_name "$p" || fail 400 "Invalid profile name"
+        [ -r "$(profile_file "$p")" ] || fail 400 "Unknown profile"
+        [ "${F[action]}" = "sched" ] && reply 200 "$(get_sched "$p")"
+        [ "${F[action]}" = "report" ] && get_report "$p"
+        reply 200 "$(get_settings "$p")"
+        ;;
+    POST)
+        len="${CONTENT_LENGTH:-0}"
+        [[ "$len" =~ ^[0-9]+$ ]] && [ "$len" -le "$MAX_BODY" ] || fail 400 "Request too large"
+        body=$(head -c "$len")
+        parse_pairs "$body"
+        case "${F[action]}" in
+            save) save_settings ;;
+            add|delete|run|clear|reset|update|check-update) do_action "${F[action]}" ;;
+            *) fail 400 "Unknown action" ;;
+        esac
+        ;;
+    *) fail 405 "Method not allowed" ;;
+esac

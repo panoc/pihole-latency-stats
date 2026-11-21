@@ -1,0 +1,1317 @@
+#!/bin/bash
+# ==============================================================================
+# phls - Pi-hole Latency Stats manager
+#   sudo phls                 menu
+#   phls status               profiles, schedule, last runs, dashboard link
+#   sudo phls run [profile]   run an analysis now ("all" = every dashboard profile); a report profile
+#                             prints its text report
+#   sudo phls edit [profile]  change settings          sudo phls delete <profile>
+#   sudo phls add <profile> [--report] [--domains <github.com | *netflix*>]
+#                             new dashboard profile, or (--report) a text-report profile
+#   sudo phls clear <profile|all> [--yes]               start the history graphs over
+#   sudo phls reset [--yes]   start everything from zero (Pi-hole's queries and logs, Unbound, PHLS)
+#   sudo phls set <profile> KEY=value ...              phls show <profile>
+#   sudo phls update          install the latest release (keeps settings and history)
+#   sudo phls uninstall
+# Internal: setup (used by the installer), apply (dashboard changes), check-update
+# Author: panoc - https://github.com/panoc/pihole-latency-stats - GPLv3
+# ==============================================================================
+PHLS_VERSION="5.0.0"
+PHLS_BUILD="beta.22"
+
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+SELF_DIR="$(dirname "$SELF")"
+. "$SELF_DIR/lib/settings.sh" || { echo "phls: missing $SELF_DIR/lib/settings.sh" >&2; exit 1; }
+
+OPT="/opt/phls"
+CONF="$PHLS_ETC/phls.conf"
+LOGDIR="/var/log/phls"
+UNITDIR="/etc/systemd/system"
+REPO_URL="https://github.com/panoc/pihole-latency-stats"
+RELEASE_URL="$REPO_URL/releases/latest/download"
+# Latest version = the latest published GitHub release (pre-releases and drafts do not count).
+# The version file in the repository is only a fallback (older PHLS versions still read it).
+RELEASES_LATEST="$REPO_URL/releases/latest"
+VERSION_URL="https://raw.githubusercontent.com/panoc/pihole-latency-stats/refs/heads/main/phls_assets/version"
+LIB_URLS=(
+    "https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css|bootstrap.min.css"
+    "https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js|chart.js"
+    "https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0/dist/chartjs-plugin-datalabels.min.js|chartjs-plugin-datalabels.js"
+)
+
+if [ -t 1 ]; then B=$'\e[1m'; G=$'\e[32m'; Y=$'\e[33m'; R=$'\e[31m'; C=$'\e[36m'; D=$'\e[2m'; N=$'\e[0m'; else B=""; G=""; Y=""; R=""; C=""; D=""; N=""; fi
+say()  { printf '%s\n' "$*"; }
+ok()   { printf '%s✔%s %s\n' "$G" "$N" "$*"; }
+warn() { printf '%s!%s %s\n' "$Y" "$N" "$*" >&2; }
+die()  { printf '%s✘ %s%s\n' "$R" "$*" "$N" >&2; exit 1; }
+step() { printf '\n%s▸ %s%s\n' "$B" "$*" "$N"; }
+
+need_root() { [ "$EUID" -eq 0 ] || die "Please run with sudo:  sudo phls ${CMD:-}"; }
+
+# Questions read from the terminal even when the installer was piped (curl ... | sudo bash).
+# Without a terminal (or with --yes) the default answer is used.
+ASSUME_YES="${PHLS_ASSUME_YES:-false}"
+TTY_IN=""
+{ [ -t 0 ] && TTY_IN="/dev/stdin"; } || { [ -r /dev/tty ] && (exec < /dev/tty) 2>/dev/null && TTY_IN="/dev/tty"; }
+ask_yn() {   # ask_yn "question" Y|N
+    local q="$1" def="${2:-Y}" a hint="[Y/n]"
+    [ "$def" = "N" ] && hint="[y/N]"
+    if [ "$ASSUME_YES" = true ] || [ -z "$TTY_IN" ]; then say "$q $hint ${D}(default: $def)${N}"; [ "$def" = "Y" ]; return; fi
+    while true; do
+        read -r -p "$q $hint " a < "$TTY_IN" || a=""
+        a="${a:-$def}"
+        case "$a" in [Yy]|[Yy][Ee][Ss]) return 0 ;; [Nn]|[Nn][Oo]) return 1 ;; esac
+    done
+}
+ask_val() {  # ask_val "prompt" default -> echo answer
+    local a
+    if [ "$ASSUME_YES" = true ] || [ -z "$TTY_IN" ]; then printf '%s' "$2"; return; fi
+    read -r -p "$1${2:+ [$2]}: " a < "$TTY_IN" || a=""
+    printf '%s' "${a:-$2}"
+}
+
+conf_get() { phls_get "$CONF" "$1"; }
+profile_conf() { printf '%s/%s.conf' "$PHLS_PROFILES" "$1"; }
+profiles() { local f; for f in "$PHLS_PROFILES"/*.conf; do [ -e "$f" ] || continue; f="${f##*/}"; f="${f%.conf}"; phls_valid_profile_name "$f" && printf '%s\n' "$f"; done; }
+have_systemd() { [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; }
+lan_ip() { hostname -I 2>/dev/null | awk '{print $1}'; }
+dash_url() {
+    local port; port=$(conf_get WEB_PORT)
+    [ "$(conf_get DASHBOARD)" = "yes" ] && [ -n "$port" ] || return 1
+    printf 'http://%s%s/' "$(lan_ip)" "$([ "$port" = 80 ] || echo ":$port")"
+}
+
+# ------------------------------------------------------------------------------
+# Pi-hole detection
+# ------------------------------------------------------------------------------
+detect_pihole() {
+    if ! command -v pihole-FTL >/dev/null 2>&1; then
+        if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Image}}' 2>/dev/null | grep -qi pihole; then
+            die "Pi-hole is running in Docker. PHLS needs Pi-hole v6 installed directly on this system."
+        fi
+        die "Pi-hole was not found. Install Pi-hole v6 first:  curl -sSL https://install.pi-hole.net | bash"
+    fi
+    local v; v=$(pihole-FTL --version 2>/dev/null | grep -o 'v[0-9][0-9.]*' | head -n 1)
+    [ -z "$v" ] && v=$(pihole-FTL -v 2>/dev/null | grep -o 'v[0-9][0-9.]*' | head -n 1)
+    local major="${v#v}"; major="${major%%.*}"
+    if [[ "$major" =~ ^[0-9]+$ ]] && [ "$major" -lt 6 ]; then die "Pi-hole $v found. PHLS 5 needs Pi-hole v6 (run: pihole -up)."; fi
+    PIHOLE_VER="${v:-v6}"
+    PIHOLE_DB=$(pihole-FTL --config files.database 2>/dev/null | tail -n 1)
+    [ -n "$PIHOLE_DB" ] && [ -e "$PIHOLE_DB" ] || PIHOLE_DB="/etc/pihole/pihole-FTL.db"
+    PIHOLE_DAYS=$(pihole-FTL --config database.maxDBdays 2>/dev/null | tail -n 1)
+    [[ "$PIHOLE_DAYS" =~ ^[0-9]+$ ]] && [ "$PIHOLE_DAYS" -ge 1 ] && [ "$PIHOLE_DAYS" -le 365 ] || PIHOLE_DAYS=91
+    # Pi-hole's own web server: where its API answers (for the dashboard's password check)
+    local ports e port first_http="" first_https=""
+    ports=$(pihole-FTL --config webserver.port 2>/dev/null | tail -n 1)
+    PIHOLE_PORTS=()
+    IFS=',' read -ra e <<< "$ports"
+    for port in "${e[@]}"; do
+        port="${port##*:}"; local num="${port%%[!0-9]*}" flags="${port#"${port%%[!0-9]*}"}"
+        [ -n "$num" ] || continue
+        PIHOLE_PORTS+=("$num")
+        if [[ "$flags" == *s* ]]; then [ -z "$first_https" ] && first_https="$num"
+        elif [[ "$flags" != *r* ]]; then [ -z "$first_http" ] && first_http="$num"; fi
+    done
+    if [ -n "$first_http" ]; then PIHOLE_API="http://127.0.0.1:$first_http/api"; PIHOLE_API_INSECURE=false
+    elif [ -n "$first_https" ]; then PIHOLE_API="https://127.0.0.1:$first_https/api"; PIHOLE_API_INSECURE=true
+    else PIHOLE_API="http://127.0.0.1:80/api"; PIHOLE_API_INSECURE=false; PIHOLE_PORTS+=(80 443); fi
+}
+
+# Whether Pi-hole has a password and checks it for local requests (read by the dashboard endpoint,
+# which runs as www-data and cannot read Pi-hole's config). Refreshed when pihole.toml changes.
+refresh_auth_info() {
+    local f="$PHLS_STATUS/pihole_auth" toml="/etc/pihole/pihole.toml"
+    [ -d "$PHLS_STATUS" ] || return 0
+    [ -e "$f" ] && [ -e "$toml" ] && [ ! "$toml" -nt "$f" ] && [ "${1:-}" != "force" ] && return 0
+    command -v pihole-FTL >/dev/null 2>&1 || return 0
+    local pw app local_auth
+    pw=$(pihole-FTL --config webserver.api.pwhash 2>/dev/null | tail -n 1)
+    app=$(pihole-FTL --config webserver.api.app_pwhash 2>/dev/null | tail -n 1)
+    local_auth=$(pihole-FTL --config webserver.api.localAPIauth 2>/dev/null | tail -n 1)
+    local tmp; tmp=$(mktemp "$f.XXXXXX") || return 0
+    printf 'password=%s localauth=%s\n' \
+        "$([ -n "$pw$app" ] && [ "$pw$app" != '""' ] && echo yes || echo no)" \
+        "$([ "$local_auth" = "false" ] && echo no || echo yes)" > "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$f"
+}
+
+# ------------------------------------------------------------------------------
+# Profiles
+# ------------------------------------------------------------------------------
+new_profile() {   # new_profile <name> [domain filter] [dashboard|report]
+    local p="$1" filter="$2" type="${3:-dashboard}" f; f=$(profile_conf "$p")
+    mkdir -p "$PHLS_PROFILES"
+    "$OPT/pihole_stats.sh" -mc "$f" >/dev/null 2>&1 || die "Could not create the profile file $f"
+    chown root:root "$f"; chmod 644 "$f"
+    phls_set "$f" DBfile "$(conf_get PIHOLE_DB)"
+    phls_set "$f" DASH_DIR "$PHLS_WEB"
+    phls_set "$f" MAX_DB_DAYS "$(conf_get PIHOLE_DAYS)"
+    grep -q '^UPSTREAM_DIST_MIN_CUTOFF=' "$f" || phls_set "$f" UPSTREAM_DIST_MIN_CUTOFF "4"
+    sed -i "s|^CONFIG_ARGS=.*|CONFIG_ARGS=''|" "$f"
+    {
+        echo ""
+        echo "# --- PHLS (used by the phls command, ignored by pihole_stats.sh) ---"
+        echo "# dashboard = runs on the schedule and fills the charts; report = text report, runs only when asked"
+        echo "PROFILE_TYPE=\"$type\""
+        echo "# Only queries for these domains (github.com = and its subdomains, * = any text). Empty = all"
+        echo "FILTER_DOMAIN=\"$filter\""
+        echo "# How often this profile runs, in minutes"
+        echo "RUN_EVERY=\"$PHLS_DEFAULTS_RUN_EVERY\""
+        echo "# Record Unbound's cache counts (messages / RRsets)"
+        echo "UCC=\"$(command -v unbound-control >/dev/null 2>&1 && echo true || echo false)\""
+        echo "# Report profiles: time range (all / 24h / 7d / custom), From - To, queries (all / upstream / pihole),"
+        echo "# leave out special blocks (-nx), Unbound section (include / only / none)"
+        echo "REPORT_RANGE=\"${PHLS_DEFAULT[REPORT_RANGE]}\""
+        echo "REPORT_FROM=\"\""
+        echo "REPORT_TO=\"\""
+        echo "REPORT_COUNT=\"${PHLS_DEFAULT[REPORT_COUNT]}\""
+        echo "REPORT_NX=\"${PHLS_DEFAULT[REPORT_NX]}\""
+        echo "REPORT_UNBOUND=\"${PHLS_DEFAULT[REPORT_UNBOUND]}\""
+    } >> "$f"
+}
+
+write_timer_dropin() {   # interval of a profile's timer
+    local p="$1" every; every=$(phls_get "$(profile_conf "$p")" RUN_EVERY)
+    [[ "$every" =~ ^[0-9]+$ ]] && [ "$every" -ge 1 ] || every="$PHLS_DEFAULTS_RUN_EVERY"
+    mkdir -p "$UNITDIR/phls@$p.timer.d"
+    # Only adds the repeat interval. (An empty "OnUnitActiveSec=" would reset ALL timer settings of the
+    # unit, including OnActiveSec/OnBootSec - then the timer never fires: the bug of beta 1.)
+    printf '[Timer]\nOnUnitActiveSec=%smin\n' "$every" > "$UNITDIR/phls@$p.timer.d/interval.conf"
+}
+
+schedule_profile() {
+    have_systemd || { warn "systemd not running: profile '$1' is not scheduled"; return 0; }
+    write_timer_dropin "$1"
+    systemctl daemon-reload
+    systemctl enable "phls@$1.timer" >/dev/null 2>&1
+    systemctl restart "phls@$1.timer"
+    write_next_run "$1" 30   # the timer fires 30 s after it starts (OnActiveSec)
+}
+
+# Next scheduled run of a profile, for the dashboard's countdown (it cannot ask systemd).
+# The timer repeats RUN_EVERY minutes after each scheduled run starts (OnUnitActiveSec).
+write_next_run() {   # write_next_run <profile> <seconds from now>
+    [ -d "$PHLS_STATUS" ] || return 0
+    local tmp="$PHLS_STATUS/.next_$1.json"
+    printf '{"next":%s,"every":%s}\n' "$(( $(date +%s) + $2 ))" "$(phls_value "$(profile_conf "$1")" RUN_EVERY)" > "$tmp" \
+        && chmod 644 "$tmp" && mv -f "$tmp" "$PHLS_STATUS/next_$1.json"
+}
+
+unschedule_profile() {
+    have_systemd || return 0
+    systemctl disable --now "phls@$1.timer" >/dev/null 2>&1
+    rm -rf "$UNITDIR/phls@$1.timer.d"
+    rm -f "$PHLS_STATUS/next_$1.json"
+    systemctl daemon-reload
+}
+
+# ------------------------------------------------------------------------------
+# run / apply
+# ------------------------------------------------------------------------------
+# Engine arguments for a profile's domain filter (github.com = it and its subdomains, * = any text)
+domain_args() {
+    local v d; v=$(phls_value "$1" FILTER_DOMAIN)
+    [ -n "$v" ] && phls_valid_domains "$v" || return 0
+    local IFS=','; for d in $v; do
+        if [[ "$d" == =* ]]; then printf '%s\n' -xdm "${d#=}"      # =youtube.com: exactly this name
+        elif [[ "$d" == *'*'* ]]; then printf '%s\n' -dm "$d"     # pattern: * = any text
+        elif [[ "$d" != *.* ]]; then printf '%s\n' -dm "$d"       # a word (youtube): any domain containing it
+        else printf '%s\n' -edm "$d"; fi                          # a name (github.com): it and its subdomains
+    done
+}
+
+# Text report of a report profile -> $PHLS_LIB/reports/<profile>.txt (printed too, unless --quiet)
+run_report() {   # run_report <profile> <quiet>
+    local p="$1" quiet="$2" f; f=$(profile_conf "$p")
+    local args=(-c "$f") r from to
+    r=$(phls_value "$f" REPORT_RANGE)
+    case "$r" in
+        all) ;;
+        custom)
+            from=$(phls_value "$f" REPORT_FROM); to=$(phls_value "$f" REPORT_TO)
+            [ -n "$from" ] || { echo "The time range is From - To, but no From date is set." >&2; return 1; }
+            phls_valid REPORT_FROM "$from" >/dev/null && args+=(-from "$from") || { echo "Bad From date: $from" >&2; return 1; }
+            if [ -n "$to" ]; then phls_valid REPORT_TO "$to" >/dev/null && args+=(-to "$to") || { echo "Bad To date: $to" >&2; return 1; }; fi ;;
+        *) [[ "$r" =~ ^[1-9][0-9]{0,3}[hd]$ ]] && args+=("-$r") ;;
+    esac
+    case "$(phls_value "$f" REPORT_COUNT)" in upstream) args+=(-up) ;; pihole) args+=(-pi) ;; esac
+    [ "$(phls_value "$f" REPORT_NX)" = "true" ] && args+=(-nx)
+    # with a domain filter the engine leaves Unbound's own (all-domain) counters out by itself
+    [ -z "$(phls_value "$f" FILTER_DOMAIN)" ] && case "$(phls_value "$f" REPORT_UNBOUND)" in only) args+=(-unb-only) ;; none) args+=(-no-unb) ;; esac
+    local a; while IFS= read -r a; do args+=("$a"); done < <(domain_args "$f")
+    mkdir -p "$PHLS_LIB/reports"; chmod 755 "$PHLS_LIB/reports"
+    local out="$PHLS_LIB/reports/$p.txt" tmp rc
+    tmp=$(mktemp "$PHLS_LIB/reports/.$p.XXXXXX") || return 1
+    flock -w 3600 /run/lock/phls_all.lock \
+        nice -n 19 ionice -c 3 env PHLS_STATE_DIR="$PHLS_LIB" PHLS_LOG_DIR="$LOGDIR" "$OPT/pihole_stats.sh" "${args[@]}" > "$tmp" 2>> "$LOGDIR/report_$p.log"
+    rc=$?
+    if [ $rc -eq 0 ] && [ -s "$tmp" ]; then
+        chmod 644 "$tmp"; mv -f "$tmp" "$out"
+        [ "$quiet" = true ] || cat "$out"
+    else
+        rm -f "$tmp"; [ $rc -eq 0 ] && rc=1
+        echo "The report failed (exit $rc). Details: $LOGDIR/report_$p.log" >&2
+    fi
+    return $rc
+}
+
+cmd_run() {
+    need_root
+    local p="${1:-default}" quiet=false debug=false wait=false timer=false a
+    shift || true
+    for a in "$@"; do case "$a" in --quiet) quiet=true ;; --debug) debug=true ;; --wait) wait=true ;; --timer) timer=true ;; esac; done
+    if [ "$p" = "all" ]; then local x rc=0; for x in $(profiles); do [ "$(phls_profile_type "$x")" = report ] && continue; cmd_run "$x" "$@" || rc=1; done; return $rc; fi
+    phls_valid_profile_name "$p" || die "Invalid profile name: $p"
+    local f; f=$(profile_conf "$p"); [ -r "$f" ] || die "No profile '$p' (see: phls status)"
+    refresh_auth_info
+    local type; type=$(phls_profile_type "$p")
+    if [ "$type" = report ] && [ "$timer" = true ]; then unschedule_profile "$p"; return 0; fi   # left over from before
+    [ "$timer" = true ] && write_next_run "$p" "$(( $(phls_value "$f" RUN_EVERY) * 60 ))"
+    local args=(-dash "$p" -c "$f")
+    [ "$(phls_get "$f" UCC)" = "true" ] && args+=(-ucc)
+    [ "$debug" = true ] && args+=(-debug)
+    while IFS= read -r a; do args+=("$a"); done < <(domain_args "$f")
+    # Wait for a run of the same profile that is still going (the engine itself refuses to overlap)
+    if [ "$wait" = true ]; then flock -w 900 "/run/lock/phls_${p}.lock" true 2>/dev/null
+    elif ! flock -n "/run/lock/phls_${p}.lock" true 2>/dev/null; then
+        [ "$quiet" = true ] || say "Profile '$p' is already running; skipped."
+        return 0
+    fi
+    local t0=$SECONDS rc
+    # "running" marker for the dashboard (start time; ignored after 30 min if a run was killed)
+    [ -d "$PHLS_STATUS" ] && { date +%s > "$PHLS_STATUS/running_$p"; chmod 644 "$PHLS_STATUS/running_$p"; }
+    if [ "$type" = report ]; then
+        [ "$quiet" = true ] || say "Running the report of '$p'..." >&2
+        # hold the profile's lock: one report of a profile at a time
+        exec 7> "/run/lock/phls_${p}.lock"; flock -w 900 7
+        run_report "$p" "$quiet"; rc=$?
+        exec 7>&-
+    else
+        [ "$quiet" = true ] || say "Running profile '$p'..."
+        # One analysis at a time: each one already uses every CPU core, so profiles that come due together
+        # run one after the other instead of competing for CPU and RAM (matters on a Pi Zero).
+        flock -w 3600 /run/lock/phls_all.lock \
+            nice -n 19 ionice -c 3 env PHLS_STATE_DIR="$PHLS_LIB" PHLS_LOG_DIR="$LOGDIR" "$OPT/pihole_stats.sh" "${args[@]}"
+        rc=$?
+    fi
+    rm -f "$PHLS_STATUS/running_$p"
+    # last run, for the dashboard (it cannot ask systemd)
+    if [ -d "$PHLS_STATUS" ]; then
+        printf '{"time":"%s","epoch":%s,"seconds":%s,"ok":%s}\n' "$(date '+%F %T')" "$(date +%s)" "$((SECONDS - t0))" \
+            "$([ $rc -eq 0 ] && echo true || echo false)" > "$PHLS_STATUS/.run_$p.json" && chmod 644 "$PHLS_STATUS/.run_$p.json" && mv -f "$PHLS_STATUS/.run_$p.json" "$PHLS_STATUS/run_$p.json"
+    fi
+    [ "$quiet" = true ] || { [ $rc -eq 0 ] && ok "Done in $((SECONDS - t0)) s" >&2 || warn "Profile '$p' failed (exit $rc)"; }
+    return $rc
+}
+
+write_status() {   # write_status <profile> <state> <message>
+    local tmp="$PHLS_STATUS/.apply_$1.json"
+    printf '{"state":"%s","time":"%s","message":"%s"}\n' "$2" "$(date '+%F %T')" "${3//\"/\'}" > "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$PHLS_STATUS/apply_$1.json"
+}
+
+write_action() {   # write_action <id> <state> <message>
+    local tmp="$PHLS_STATUS/.action.json"
+    printf '{"id":"%s","state":"%s","time":"%s","message":"%s"}\n' "$1" "$2" "$(date '+%F %T')" "${3//\"/\'}" > "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$PHLS_STATUS/action.json"
+}
+
+# Actions requested from the dashboard (add / delete / run a profile, check for / install an update).
+# The request is data only: every field is checked here again, as root.
+do_actions() {
+    local f id line key val act prof filt from ptype msg
+    for f in "$PHLS_PENDING"/@*.conf; do
+        [ -e "$f" ] || continue
+        id="${f##*/@}"; id="${id%.conf}"; [[ "$id" =~ ^[0-9a-z]{1,40}$ ]] || { rm -f "$f"; continue; }
+        act=""; prof=""; filt=""; from=""; ptype=""; local opts=""
+        while IFS= read -r line || [ -n "$line" ]; do
+            if [[ "$line" =~ ^OPTS=\"([a-z,]{0,60})\"$ ]]; then opts="${BASH_REMATCH[1]}"; continue; fi
+            [[ "$line" =~ ^(ACTION|PROFILE|FILTER|FROM|TYPE)=\"([A-Za-z0-9.*_=,-]{0,253})\"$ ]] || continue
+            key="${BASH_REMATCH[1]}"; val="${BASH_REMATCH[2]}"
+            case "$key" in ACTION) act="$val" ;; PROFILE) prof="$val" ;; FILTER) filt="$val" ;; FROM) from="$val" ;; TYPE) ptype="$val" ;; esac
+        done < <(head -c 2048 "$f")
+        rm -f "$f"
+        logger -t phls "dashboard action $act ${prof}" 2>/dev/null
+        case "$act" in
+            add)
+                write_action "$id" running "Creating profile '$prof'..."
+                if msg=$(add_profile "$prof" "$filt" "${from:-default}" "${ptype:-dashboard}" 2>&1); then
+                    if [ "$ptype" = report ]; then
+                        write_action "$id" done "Report profile '$prof' created. Set its time range in Settings, then press Run report."
+                    else
+                        write_action "$id" running "Profile '$prof' created. Running its first analysis..."
+                        cmd_run "$prof" --quiet --wait
+                        write_action "$id" done "Profile '$prof' created."
+                    fi
+                else write_action "$id" error "$msg"; fi ;;
+            clear)
+                if msg=$(clear_profile "$prof" 2>&1); then
+                    write_action "$id" running "History of '$prof' cleared. Running a fresh analysis..."
+                    cmd_run "$prof" --quiet --wait
+                    write_action "$id" done "History of '$prof' cleared."
+                else write_action "$id" error "$msg"; fi ;;
+            delete)
+                if msg=$(delete_profile "$prof" 2>&1); then write_action "$id" done "Profile '$prof' deleted."
+                else write_action "$id" error "$msg"; fi ;;
+            run)
+                if phls_valid_profile_name "$prof" && [ -r "$(profile_conf "$prof")" ]; then
+                    if [ "$(phls_profile_type "$prof")" = report ]; then
+                        write_action "$id" running "Running the report of '$prof'..."
+                        if msg=$(cmd_run "$prof" --quiet --wait 2>&1); then write_action "$id" done "Report of '$prof' ready."
+                        else write_action "$id" error "${msg:-The report of '$prof' failed.} See: sudo phls logs $prof"; fi
+                    else
+                        write_action "$id" running "Running '$prof'..."
+                        if cmd_run "$prof" --quiet --wait; then write_action "$id" done "Analysis of '$prof' done."
+                        else write_action "$id" error "The analysis of '$prof' failed. See: sudo phls logs $prof"; fi
+                    fi
+                else write_action "$id" error "No profile '$prof'"; fi ;;
+            reset)
+                local o2="" w
+                for w in ${opts//,/ }; do case "$w" in queries|devices|logs|unbound|phls) o2+="$w," ;; esac; done
+                if [ -z "$o2" ]; then write_action "$id" error "Nothing selected"
+                else
+                    write_action "$id" running "Resetting (Pi-hole restarts, DNS stops for a few seconds)..."
+                    msg=$(reset_all "${o2%,}" 2>&1); local rrc=$?
+                    if [ $rrc -eq 0 ]; then
+                        write_action "$id" running "Reset done. Running a fresh analysis..."
+                        cmd_run all --quiet --wait
+                        write_action "$id" done "Everything was reset ($(echo "${o2%,}" | sed 's/,/, /g'))."
+                    elif [ $rrc -eq 2 ]; then write_action "$id" done "Everything was reset. $msg."
+                    else write_action "$id" error "$msg"; fi
+                fi ;;
+            check-update)
+                if cmd_check_update; then
+                    local lt; lt=$(sed -n 's/^s=//p' "$PHLS_LIB/latest_version" | head -n 1)
+                    if [ "$(printf '%s\n%s\n' "$lt" "$PHLS_VERSION" | sort -V | tail -n 1)" != "$PHLS_VERSION" ]; then write_action "$id" done "Version $lt is available."
+                    else write_action "$id" done "You have the latest version (latest release: $lt)."; fi
+                else write_action "$id" error "Could not reach GitHub to check for updates."; fi ;;
+            update)
+                write_action "$id" running "Downloading and installing the latest release (the dashboard reloads when done)..."
+                if ASSUME_YES=true cmd_update >> "$LOGDIR/update.log" 2>&1; then write_action "$id" done "Updated. Reload the page."
+                else write_action "$id" error "The update failed; nothing was changed. See $LOGDIR/update.log"; fi ;;
+            *) write_action "$id" error "Unknown action" ;;
+        esac
+    done
+}
+
+# Apply changes sent by the dashboard. Every value is checked again here (as root).
+cmd_apply() {
+    need_root
+    local f p conf line key val why bad changed timer_changed round
+    for round in 1 2 3 4 5; do   # changes sent while an analysis was running are picked up too
+    # settings first, then actions: "Save & apply" followed right away by "Run report" must run
+    # the report with the new settings
+    if ! compgen -G "$PHLS_PENDING/[!@]*.conf" >/dev/null; then
+        do_actions
+        compgen -G "$PHLS_PENDING/*.conf" >/dev/null || break
+        continue
+    fi
+    for f in "$PHLS_PENDING"/[!@]*.conf; do
+        [ -e "$f" ] || continue
+        p="${f##*/}"; p="${p%.conf}"
+        if ! phls_valid_profile_name "$p" || [ ! -r "$(profile_conf "$p")" ]; then rm -f "$f"; continue; fi
+        conf=$(profile_conf "$p")
+        local keys=() vals=(); bad=""
+        while IFS= read -r line || [ -n "$line" ]; do
+            [[ -z "$line" || "$line" == \#* ]] && continue
+            if [[ "$line" =~ ^([A-Z0-9_]+)=\"([^\"]*)\"$ ]]; then
+                key="${BASH_REMATCH[1]}"; val="${BASH_REMATCH[2]}"
+                why=$(phls_valid "$key" "$val") || { bad="$key: $why"; break; }
+                keys+=("$key"); vals+=("$val")
+            else bad="unreadable line"; break; fi
+        done < <(head -c 8192 "$f")
+        if [ -z "$bad" ] && [[ " ${keys[*]} " == *" L"[0-9][0-9]" "* ]]; then
+            # tiers may come in any order: sort the whole set, and apply every tier that moved
+            local merged i l v line2
+            merged=$(for l in L01 L02 L03 L04 L05 L06 L07 L08 L09 L10 L11 L12 L13 L14 L15 L16 L17 L18 L19 L20; do
+                v=$(phls_get "$conf" "$l"); for i in "${!keys[@]}"; do [ "${keys[$i]}" = "$l" ] && v="${vals[$i]}"; done
+                printf '%s=%s\n' "$l" "$v"; done | phls_sort_tiers)
+            local k2=() v2=()
+            for i in "${!keys[@]}"; do [[ "${keys[$i]}" =~ ^L[0-9][0-9]$ ]] || { k2+=("${keys[$i]}"); v2+=("${vals[$i]}"); }; done
+            while IFS= read -r line2; do
+                l="${line2%%=*}"; v="${line2#*=}"
+                [ "$(phls_get "$conf" "$l")" = "$v" ] && grep -q "^$l=" "$conf" && continue
+                k2+=("$l"); v2+=("$v")
+            done <<< "$merged"
+            keys=("${k2[@]}"); vals=("${v2[@]}")
+            bad=$(printf '%s\n' "$merged" | phls_check_tiers)
+        fi
+        if [ -n "$bad" ]; then
+            write_status "$p" "error" "Rejected: $bad"; logger -t phls "rejected dashboard change for $p: $bad" 2>/dev/null
+            rm -f "$f"; continue
+        fi
+        # profile type: the default profile always stays a dashboard profile (the dashboard opens it)
+        local i newtype="" oldtype; oldtype=$(phls_profile_type "$p")
+        for i in "${!keys[@]}"; do [ "${keys[$i]}" = "PROFILE_TYPE" ] && newtype="${vals[$i]}"; done
+        if [ "$newtype" = report ] && [ "$p" = default ]; then
+            write_status "$p" "error" "Rejected: the default profile always stays a dashboard profile"; rm -f "$f"; continue
+        fi
+        changed=""; timer_changed=false; local filter_changed=false
+        for i in "${!keys[@]}"; do
+            [ "${keys[$i]}" = "FILTER_DOMAIN" ] && [ "$(phls_value "$conf" FILTER_DOMAIN)" != "${vals[$i]}" ] && filter_changed=true
+            phls_set "$conf" "${keys[$i]}" "${vals[$i]}" && changed+="${keys[$i]} "
+            [ "${keys[$i]}" = "RUN_EVERY" ] && timer_changed=true
+        done
+        logger -t phls "dashboard changed profile $p: ${changed:-nothing}" 2>/dev/null
+        local type; type=$(phls_profile_type "$p")
+        if [ "$type" = report ]; then
+            rm -f "$f"
+            [ "$oldtype" != report ] && unschedule_profile "$p"
+            write_status "$p" "done" "Settings saved (${changed% }). Press Run report to see the result."
+            continue
+        fi
+        write_status "$p" "running" "Settings saved (${changed% }). Running the analysis..."
+        rm -f "$f"   # only now: the dashboard sees "running" before the request disappears
+        # other domains = other data: the old history would not match
+        [ "$filter_changed" = true ] && clear_profile "$p" >/dev/null
+        { [ "$timer_changed" = true ] || [ "$oldtype" = report ]; } && schedule_profile "$p"
+        if cmd_run "$p" --quiet --wait; then write_status "$p" "done" "Settings applied (${changed% })."
+        else write_status "$p" "error" "Settings saved, but the analysis failed. See: sudo phls logs $p"; fi
+    done
+    done
+    do_actions
+}
+
+# ------------------------------------------------------------------------------
+# status / show / set / edit / add / delete
+# ------------------------------------------------------------------------------
+ago() { local s=$(( $(date +%s) - $1 )); if [ $s -lt 120 ]; then echo "${s}s ago"; elif [ $s -lt 7200 ]; then echo "$((s/60)) min ago"; else echo "$((s/3600)) h ago"; fi; }
+
+cmd_status() {
+    [ -r "$CONF" ] || die "PHLS is not installed (no $CONF)."
+    say "${B}Pi-hole Latency Stats $PHLS_VERSION${PHLS_BUILD:+-$PHLS_BUILD}${N}"
+    local url; url=$(dash_url) && say "Dashboard:  ${C}$url${N}" || say "Dashboard:  not installed"
+    if [ "$(conf_get DASHBOARD)" = "yes" ] && have_systemd; then
+        systemctl is-active --quiet phls-web.service && say "Web server: ${G}running${N} (port $(conf_get WEB_PORT))" || say "Web server: ${R}not running${N}  (sudo systemctl status phls-web)"
+    fi
+    say "Database:   $(conf_get PIHOLE_DB)"
+    local latest; latest=$(grep '^s=' "$PHLS_LIB/latest_version" 2>/dev/null | cut -d= -f2)
+    [ -n "$latest" ] && [ "$(printf '%s\n' "$latest" "$PHLS_VERSION" | sort -V | tail -n 1)" != "$PHLS_VERSION" ] && say "${Y}Update available: $latest  (sudo phls update)${N}"
+    say ""
+    printf '%-14s %-10s %-22s %s\n' "PROFILE" "EVERY" "LAST RUN" "FILTER"
+    local p f every last res when filt
+    for p in $(profiles); do
+        f=$(profile_conf "$p"); every=$(phls_get "$f" RUN_EVERY)
+        filt=$(phls_value "$f" FILTER_DOMAIN); local extra; extra=$(sed -n "s/^CONFIG_ARGS='\(.*\)'.*/\1/p" "$f"); filt="$filt${extra:+ $extra}"
+        when="-"
+        if [ "$(phls_profile_type "$p")" = report ]; then
+            [ -s "$PHLS_LIB/reports/$p.txt" ] && when="$(ago "$(stat -c %Y "$PHLS_LIB/reports/$p.txt")")"
+            printf '%-14s %-10s %-22s %s\n' "$p" "report" "$when" "${filt:-all queries}"
+            continue
+        fi
+        if have_systemd; then
+            last=$(systemctl show "phls@$p.service" -p ExecMainExitTimestamp --value 2>/dev/null)
+            res=$(systemctl show "phls@$p.service" -p Result --value 2>/dev/null)
+            if [ -n "$last" ] && [ "$last" != "n/a" ]; then
+                when="$(ago "$(date -d "$last" +%s 2>/dev/null || date +%s)")"
+                [ "$res" = "success" ] && when="$when, ok" || when="$when, $res"
+            fi
+            systemctl is-enabled --quiet "phls@$p.timer" 2>/dev/null || every="off"
+        fi
+        printf '%-14s %-10s %-22s %s\n' "$p" "${every:+$every min}" "$when" "${filt:-all queries}"
+    done
+}
+
+cmd_show() {
+    local p="${1:-default}" f l key typ min max group label help cur=""
+    f=$(profile_conf "$p"); [ -r "$f" ] || die "No profile '$p'"
+    local tl; tl=$(phls_profile_type "$p"); tl="${tl:0:1}"
+    say "${B}Profile $p${N}  ($f)"
+    for l in "${PHLS_SCHEMA[@]}"; do
+        IFS='|' read -r key typ min max group label help <<< "$l"
+        [[ "$(phls_scope "$key")" == *"$tl"* ]] || continue
+        [ "$group" != "$cur" ] && { say "${C}$group${N}"; cur="$group"; }
+        printf '  %-34s %-28s %s\n' "$label" "$(phls_value "$f" "$key")" "${D}$key${N}"
+    done
+}
+
+# set <profile> KEY=value ... (validated, then applied like a dashboard change)
+cmd_set() {
+    need_root
+    local p="$1"; shift || true
+    phls_valid_profile_name "$p" && [ -r "$(profile_conf "$p")" ] || die "No profile '$p'"
+    [ $# -gt 0 ] || die "Usage: sudo phls set <profile> KEY=value ..."
+    local kv key val why out=""
+    for kv in "$@"; do
+        [[ "$kv" == *=* ]] || die "Expected KEY=value, got: $kv"
+        key="${kv%%=*}"; val="${kv#*=}"
+        why=$(phls_valid "$key" "$val") || die "$key: $why"
+        out+="$key=\"$val\""$'\n'
+    done
+    mkdir -p "$PHLS_PENDING"; printf '%s' "$out" > "$PHLS_PENDING/$p.conf"
+    cmd_apply
+    say "$(sed -n 's/.*"message":"\([^"]*\)".*/\1/p' "$PHLS_STATUS/apply_$p.json")"
+}
+
+pick_profile() {   # pick_profile "prompt" -> echo name
+    local list=() p i=1 a
+    mapfile -t list < <(profiles)
+    [ ${#list[@]} -gt 0 ] || die "No profiles."
+    [ ${#list[@]} -eq 1 ] && { echo "${list[0]}"; return; }
+    for p in "${list[@]}"; do echo "  $i) $p" >&2; i=$((i+1)); done
+    while true; do
+        a=$(ask_val "$1" "1")
+        [[ "$a" =~ ^[0-9]+$ ]] && [ "$a" -ge 1 ] && [ "$a" -le ${#list[@]} ] && { echo "${list[$((a-1))]}"; return; }
+        phls_valid_profile_name "$a" && [ -r "$(profile_conf "$a")" ] && { echo "$a"; return; }
+    done
+}
+
+# Interactive settings editor: same settings and checks as the dashboard
+cmd_edit() {
+    need_root
+    [ -n "$TTY_IN" ] || die "edit needs a terminal; use: sudo phls set <profile> KEY=value"
+    local p="$1"; [ -n "$p" ] || p=$(pick_profile "Profile")
+    local f; f=$(profile_conf "$p"); [ -r "$f" ] || die "No profile '$p'"
+    local -A NEW=()
+    while true; do
+        say ""; say "${B}Settings of profile '$p'${N}  ${D}(number = change, s = save & apply, q = quit)${N}"
+        local i=1 l key typ min max group label help cur="" v tl SHOWN=()
+        tl=$(phls_profile_type "$p"); tl="${tl:0:1}"
+        for l in "${PHLS_SCHEMA[@]}"; do [[ "$(phls_scope "${l%%|*}")" == *"$tl"* ]] && SHOWN+=("$l"); done
+        for l in "${SHOWN[@]}"; do
+            IFS='|' read -r key typ min max group label help <<< "$l"
+            [ "$group" != "$cur" ] && { say "${C}$group${N}"; cur="$group"; }
+            v=$(phls_value "$f" "$key"); [ -n "${NEW[$key]+x}" ] && v="${Y}${NEW[$key]}${N} (new)"
+            printf '  %2d) %-34s %s\n' "$i" "$label" "${v:-${D}(off)${N}}"
+            i=$((i+1))
+        done
+        local a; a=$(ask_val ">" "")
+        case "$a" in
+            q|Q|"") [ ${#NEW[@]} -gt 0 ] && ! ask_yn "Discard ${#NEW[@]} change(s)?" N && continue; return 0 ;;
+            s|S)
+                [ ${#NEW[@]} -eq 0 ] && { say "Nothing changed."; return 0; }
+                local out="" k; for k in "${!NEW[@]}"; do out+="$k=\"${NEW[$k]}\""$'\n'; done
+                mkdir -p "$PHLS_PENDING"; printf '%s' "$out" > "$PHLS_PENDING/$p.conf"
+                say "Applying and running the analysis..."; cmd_apply
+                say "$(sed -n 's/.*"message":"\([^"]*\)".*/\1/p' "$PHLS_STATUS/apply_$p.json")"
+                return 0 ;;
+            *)
+                [[ "$a" =~ ^[0-9]+$ ]] && [ "$a" -ge 1 ] && [ "$a" -le ${#SHOWN[@]} ] || continue
+                IFS='|' read -r key typ min max group label help <<< "${SHOWN[$((a-1))]}"
+                [ -n "$help" ] && say "${D}$help${N}"
+                case "$typ" in bool) say "${D}true / false${N}" ;; enum) say "${D}${min//,/ / }${N}" ;; numopt|domain|datetime) say "${D}- = empty${N}" ;;
+                    range) say "${D}all, custom (From - To), or e.g. 24h, 7d${N}" ;; esac
+                local nv; read -r -p "$label [$(phls_value "$f" "$key")]: " nv < "$TTY_IN"
+                [ -z "$nv" ] && continue
+                [ "$nv" = "-" ] && nv=""
+                local why; why=$(phls_valid "$key" "$nv") && NEW[$key]="$nv" || warn "$why"
+                ;;
+        esac
+    done
+}
+
+# add_profile <name> <domain filter or empty> [copy settings from] [dashboard|report]
+add_profile() {
+    local p="$1" filter="$2" from="${3:-default}" type="${4:-dashboard}"
+    phls_valid_profile_name "$p" || { echo "Invalid name (letters, digits, - and _, max 32)"; return 1; }
+    [ -e "$(profile_conf "$p")" ] && { echo "A profile '$p' already exists"; return 1; }
+    phls_valid_domains "$filter" || { echo "Invalid domain filter"; return 1; }
+    [ "$type" = report ] || type=dashboard
+    new_profile "$p" "$filter" "$type"
+    # copy the settings of another profile (tiers, cutoffs, ...), but not its type and domains
+    local d; d=$(profile_conf "$from")
+    if [ -r "$d" ] && [ "$from" != "$p" ]; then
+        local l k; for l in "${PHLS_SCHEMA[@]}"; do
+            k="${l%%|*}"; [ "$k" = PROFILE_TYPE ] || [ "$k" = FILTER_DOMAIN ] && continue
+            # report settings only come from another report profile (a new one starts with all data)
+            [[ "$k" == REPORT_* ]] && [ "$(phls_profile_type "$from")" != report ] && continue
+            grep -q "^$k=" "$d" && phls_set "$(profile_conf "$p")" "$k" "$(phls_get "$d" "$k")"
+        done
+    fi
+    [ "$type" = report ] || schedule_profile "$p"
+}
+
+# clear_profile <name>: forget the dashboard history and the cache (the next run starts over)
+clear_profile() {
+    local p="$1"
+    phls_valid_profile_name "$p" && [ -r "$(profile_conf "$p")" ] || { echo "No profile '$p'"; return 1; }
+    flock -w 900 "/run/lock/phls_${p}.lock" rm -f "$PHLS_WEB/dash_$p.json" "$PHLS_WEB/dash_$p.h.json" "$PHLS_LIB/cache/phls_$p.db" "$PHLS_STATUS/run_$p.json"
+}
+
+# reset_all <opts>: start everything from zero. opts = comma list of:
+#   queries  delete Pi-hole's stored queries (query log, long-term data)
+#   devices  delete Pi-hole's whole database file (also the devices list on the Network page)
+#   logs     delete Pi-hole's log files (/var/log/pihole/pihole.log*)
+#   unbound  restart Unbound (empties its cache and its counters)
+#   phls     clear the history of every PHLS profile
+# Pi-hole is stopped while its files are changed, so DNS is down for a few seconds.
+reset_all() {
+    local o=",$1," db rc=0 i
+    db=$(conf_get PIHOLE_DB); [ -n "$db" ] || db=/etc/pihole/pihole-FTL.db
+    if [[ "$o" == *,queries,* || "$o" == *,devices,* || "$o" == *,logs,* ]]; then
+        systemctl stop pihole-FTL || { echo "Could not stop Pi-hole"; return 1; }
+        if [[ "$o" == *,devices,* ]]; then rm -f "$db" "$db-wal" "$db-shm" || rc=1
+        elif [[ "$o" == *,queries,* ]]; then sqlite3 "$db" "PRAGMA busy_timeout = 30000; DELETE FROM query_storage; VACUUM;" || rc=1; fi
+        [[ "$o" == *,logs,* ]] && rm -f /var/log/pihole/pihole.log*
+        systemctl start pihole-FTL || { echo "Pi-hole did not start again - check: sudo systemctl status pihole-FTL"; return 1; }
+        # wait until Pi-hole has created / opened its database again. Never open a missing file here:
+        # sqlite3 would create it, owned by root, and Pi-hole (user pihole) could not write to it.
+        local ready=false
+        for i in $(seq 1 60); do
+            if [ -s "$db" ] && [ "$(sqlite3 "$db" "SELECT COUNT(*) FROM sqlite_master WHERE name = 'query_storage';" 2>/dev/null)" = "1" ]; then ready=true; break; fi
+            sleep 1
+        done
+        [ "$ready" = true ] || { echo "Pi-hole restarted, but has not created its database yet - the next scheduled run will pick it up"; return 2; }
+    fi
+    [[ "$o" == *,unbound,* ]] && systemctl is-active --quiet unbound && systemctl restart unbound
+    if [[ "$o" == *,phls,* ]]; then local p; for p in $(profiles); do clear_profile "$p" >/dev/null; done; fi
+    [ $rc -eq 0 ] || { echo "Pi-hole's database could not be changed"; return 1; }
+}
+
+# delete_profile <name>
+delete_profile() {
+    local p="$1"
+    phls_valid_profile_name "$p" && [ -r "$(profile_conf "$p")" ] || { echo "No profile '$p'"; return 1; }
+    [ "$(profiles | wc -l)" -le 1 ] && { echo "The last profile cannot be deleted"; return 1; }
+    unschedule_profile "$p"
+    rm -f "$(profile_conf "$p")" "$PHLS_WEB/dash_$p.json" "$PHLS_WEB/dash_$p.h.json" "$PHLS_LIB/cache/phls_$p.db" \
+          "$PHLS_STATUS/apply_$p.json" "$PHLS_STATUS/run_$p.json" "$PHLS_STATUS/next_$p.json" "$PHLS_STATUS/running_$p" \
+          "$PHLS_LIB/reports/$p.txt" "$LOGDIR/phls_${p}_debug.log" "$LOGDIR/report_$p.log"
+}
+
+cmd_add() {
+    need_root
+    local p="" filter="" type=dashboard asked=false
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --report) type=report; asked=true ;;
+            --domains) shift; filter="$1"; asked=true ;;
+            *) [ -z "$p" ] && p="$1" ;;
+        esac
+        shift
+    done
+    phls_valid_domains "$filter" || die "Domains: one or more domains separated by commas, each made of letters, digits, . - _ and *, optionally starting with =."
+    while ! phls_valid_profile_name "$p" || [ -e "$(profile_conf "$p")" ]; do
+        [ -n "$p" ] && warn "Use letters, digits, - and _ (max 32), and a name that is not taken."
+        [ -n "$TTY_IN" ] || die "Usage: sudo phls add <name>"
+        p=$(ask_val "Name of the new profile" "")
+    done
+    if [ -n "$TTY_IN" ] && [ "$asked" = false ]; then
+        say "A ${B}dashboard${N} profile runs on the schedule and fills its own charts."
+        say "A ${B}report${N} profile runs only when you ask (sudo phls run <name>) and prints a text report."
+        ask_yn "Report profile?" N && type=report
+        say "A profile can show only some domains: ${C}youtube${N} (any domain containing it), ${C}github.com${N} (and its subdomains),"
+        say "${C}=youtube.com${N} (exactly that name), or several: ${C}youtube.com,googlevideo.com,ytimg.com${N}. Leave empty for all queries."
+        while true; do
+            filter=$(ask_val "Domain filter" "")
+            phls_valid_domains "$filter" && break
+            warn "Only letters, digits, . - _ and * are allowed."
+        done
+    fi
+    local why; why=$(add_profile "$p" "$filter" default "$type") || die "$why"
+    if [ "$type" = report ]; then
+        ok "Report profile '$p' created (all data by default)."
+        say "Change its time range:  ${C}sudo phls edit $p${N}     Run it:  ${C}sudo phls run $p${N}"
+        return 0
+    fi
+    ok "Profile '$p' created (every $(phls_get "$(profile_conf "$p")" RUN_EVERY) min)."
+    local url; url=$(dash_url) && say "Dashboard: ${C}${url}?p=$p${N}"
+    cmd_run "$p" --quiet &
+}
+
+cmd_delete() {
+    need_root
+    local p="$1"; [ -n "$p" ] || p=$(pick_profile "Profile to delete")
+    [ -r "$(profile_conf "$p")" ] || die "No profile '$p'"
+    ask_yn "Delete profile '$p' and its history?" N || return 0
+    local why; why=$(delete_profile "$p") || die "$why"
+    ok "Deleted '$p'."
+}
+
+# clear <profile|all> [--yes]: --yes skips the question (for scripts)
+cmd_clear() {
+    need_root
+    local p="$1" x; [ -n "$p" ] || p=$(pick_profile "Profile to clear")
+    local list=("$p"); [ "$p" = "all" ] && mapfile -t list < <(profiles)
+    for x in "${list[@]}"; do [ -r "$(profile_conf "$x")" ] || die "No profile '$x'"; done
+    if [ "$ASSUME_YES" != true ]; then
+        ask_yn "Clear the history graphs of: ${list[*]}? (Pi-hole's own data is not touched)" N || return 0
+    fi
+    for x in "${list[@]}"; do
+        local why; why=$(clear_profile "$x") || die "$why"
+        ok "History of '$x' cleared. Running a fresh analysis..."
+        cmd_run "$x" --quiet --wait && ok "Done."
+    done
+}
+
+cmd_reset() {
+    need_root
+    local opts=""
+    say "${B}Reset everything${N}: start all statistics from zero. This cannot be undone."
+    if [ "$ASSUME_YES" = true ]; then opts="queries,logs,unbound,phls"
+    else
+        ask_yn "Delete Pi-hole's stored queries (its query log and long-term data)?" Y && opts+="queries,"
+        ask_yn "Also delete Pi-hole's devices list (Network page)? This deletes its whole database file." N && opts+="devices,"
+        ask_yn "Delete Pi-hole's log files?" Y && opts+="logs,"
+        command -v unbound-control >/dev/null 2>&1 && ask_yn "Restart Unbound (empties its cache and counters)?" Y && opts+="unbound,"
+        ask_yn "Clear the history graphs of all PHLS profiles?" Y && opts+="phls,"
+        [ -n "$opts" ] || { say "Nothing selected."; return 0; }
+        say "${Y}DNS stops for a few seconds while Pi-hole restarts.${N}"
+        ask_yn "Go ahead?" N || return 0
+    fi
+    local why rrc; why=$(reset_all "${opts%,}"); rrc=$?
+    [ $rrc -eq 2 ] && { ok "Reset done. $why."; return 0; }
+    [ $rrc -eq 0 ] || die "$why"
+    ok "Reset done. Running a fresh analysis..."
+    cmd_run all --quiet --wait && ok "Done."
+}
+
+cmd_logs() {
+    local p="${1:-default}"
+    have_systemd && journalctl -u "phls@$p.service" -n 40 --no-pager
+    [ -s "$LOGDIR/report_$p.log" ] && { say "${D}--- $LOGDIR/report_$p.log (last lines)${N}"; tail -n 10 "$LOGDIR/report_$p.log"; }
+    [ -f "$LOGDIR/phls_${p}_debug.log" ] && { say "${D}--- $LOGDIR/phls_${p}_debug.log (last lines)${N}"; tail -n 5 "$LOGDIR/phls_${p}_debug.log"; }
+    say "${D}Detailed timing log of one run: sudo phls run $p --debug${N}"
+}
+
+# ------------------------------------------------------------------------------
+# Updates
+# ------------------------------------------------------------------------------
+cmd_check_update() {
+    local tmp rc=1 loc ver; tmp=$(mktemp)
+    # GitHub answers /releases/latest with a redirect to /releases/tag/<tag>: the tag is the version
+    # (v5.0.1 or 5.0.1). No API call, so no API rate limit.
+    loc=$(curl -fsSI --connect-timeout 15 --max-time 60 "$RELEASES_LATEST" 2>/dev/null | tr -d '\r' | sed -n 's/^[Ll]ocation:[[:space:]]*//p' | tail -n 1)
+    ver=$(printf '%s' "$loc" | sed -n 's#.*/releases/tag/[vV]\{0,1\}\([0-9][0-9]*\.[0-9][0-9]*\(\.[0-9][0-9]*\)\{0,1\}\)$#\1#p')
+    if [ -n "$ver" ]; then printf 's=%s\n' "$ver" > "$tmp"
+    elif ! { curl -fsSL --connect-timeout 15 --max-time 60 "$VERSION_URL" -o "$tmp" 2>/dev/null && grep -q '^s=[0-9.]*$' "$tmp"; }; then
+        : > "$tmp"
+    fi
+    if grep -q '^s=[0-9.]*$' "$tmp"; then
+        install -m 644 "$tmp" "$PHLS_LIB/latest_version"
+        [ -d "$PHLS_WEB" ] && install -m 644 "$tmp" "$PHLS_WEB/version"
+        install -m 644 "$tmp" "$OPT/version" 2>/dev/null
+        rc=0
+    fi
+    rm -f "$tmp"
+    return $rc
+}
+
+# download_release <dir> [archive file instead of downloading] -> extracts phls_assets/ into <dir>
+download_release() {
+    local dir="$1" local_archive="$2" arc="$1/phls_assets.tar.gz"
+    if [ -n "$local_archive" ]; then cp "$local_archive" "$arc" || return 1
+    else
+        say "Downloading the latest release..."
+        curl -fsSL --retry 2 --connect-timeout 15 "$RELEASE_URL/phls_assets.tar.gz" -o "$arc" && [ -s "$arc" ] || { warn "Download failed."; return 1; }
+        if curl -fsSL --connect-timeout 15 "$RELEASE_URL/phls_assets.tar.gz.sha256" -o "$arc.sha256" 2>/dev/null; then
+            [ "$(awk '{print $1; exit}' "$arc.sha256")" = "$(sha256sum "$arc" | awk '{print $1}')" ] || { warn "Checksum mismatch: the download is damaged."; return 1; }
+            ok "Checksum verified"
+        else warn "No checksum published for this release."; fi
+    fi
+    tar -xzf "$arc" -C "$dir" && [ -x "$dir/phls_assets/phls" ] || { warn "The archive is damaged."; return 1; }
+}
+
+cmd_update() {
+    need_root
+    local tmp; tmp=$(mktemp -d)
+    download_release "$tmp" "$1" || { rm -rf "$tmp"; die "Update failed; nothing was changed."; }
+    local newv; newv=$(sed -n 's/^PHLS_VERSION="\(.*\)"/\1/p' "$tmp/phls_assets/phls")
+    say "Installed: $PHLS_VERSION   Downloaded: ${newv:-?}"
+    PHLS_ASSUME_YES="$ASSUME_YES" bash "$tmp/phls_assets/phls" setup
+    local rc=$?; rm -rf "$tmp"; return $rc
+}
+
+# ------------------------------------------------------------------------------
+# Setup (fresh install, upgrade from v4, or update of v5). Runs from the extracted release folder.
+# ------------------------------------------------------------------------------
+apt_install() {
+    command -v apt-get >/dev/null 2>&1 || die "Please install these packages first: $*"
+    say "Installing: $*"
+    apt-get update -qq >/dev/null 2>&1
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends "$@" >/dev/null 2>&1 || die "apt-get could not install: $*"
+}
+
+port_in_use() {
+    local port="$1"
+    if command -v ss >/dev/null 2>&1; then ss -Htln 2>/dev/null | awk '{print $4}' | grep -qE "[:.]$port\$"
+    else awk -v p="$(printf ':%04X' "$port")" 'NR > 1 && $4 == "0A" && index($2, p) { f = 1 } END { exit !f }' /proc/net/tcp /proc/net/tcp6 2>/dev/null; fi
+}
+
+pick_port() {
+    local p x
+    for p in 8080 8081 8088 8090 8888 8008 8181 8282 9080; do
+        for x in "${PIHOLE_PORTS[@]}"; do [ "$x" = "$p" ] && continue 2; done
+        port_in_use "$p" || { echo "$p"; return; }
+    done
+    echo 8099
+}
+
+write_units() {
+    cat > "$UNITDIR/phls@.service" <<'EOF'
+[Unit]
+Description=Pi-hole Latency Stats analysis (profile %i)
+After=pihole-FTL.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/phls/phls run %i --quiet --timer
+Nice=19
+IOSchedulingClass=idle
+TimeoutStartSec=30min
+EOF
+    cat > "$UNITDIR/phls@.timer" <<'EOF'
+[Unit]
+Description=Pi-hole Latency Stats schedule (profile %i)
+
+[Timer]
+# first run 30 s after the timer starts / 3 min after boot; the repeat interval
+# (OnUnitActiveSec) comes from the profile's drop-in: phls@<profile>.timer.d/interval.conf
+OnActiveSec=30s
+OnBootSec=3min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target
+EOF
+    cat > "$UNITDIR/phls-apply.path" <<EOF
+[Unit]
+Description=Pi-hole Latency Stats: watch for settings changed in the dashboard
+
+[Path]
+PathExistsGlob=$PHLS_PENDING/*.conf
+Unit=phls-apply.service
+
+[Install]
+WantedBy=paths.target
+EOF
+    cat > "$UNITDIR/phls-apply.service" <<'EOF'
+[Unit]
+Description=Pi-hole Latency Stats: apply settings changed in the dashboard
+
+[Service]
+Type=oneshot
+ExecStart=/opt/phls/phls apply
+Nice=10
+TimeoutStartSec=30min
+EOF
+    cat > "$UNITDIR/phls-update-check.service" <<'EOF'
+[Unit]
+Description=Pi-hole Latency Stats: check for a new version
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/phls/phls check-update
+Nice=19
+EOF
+    cat > "$UNITDIR/phls-update-check.timer" <<'EOF'
+[Unit]
+Description=Pi-hole Latency Stats: daily version check
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=6h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+}
+
+write_web_units() {
+    local port="$1" v6=""
+    [ -e /proc/net/if_inet6 ] && v6="\$SERVER[\"socket\"] == \"[::]:$port\" { }"
+    cat > "$PHLS_ETC/lighttpd.conf" <<EOF
+# PHLS dashboard web server (its own lighttpd instance: Pi-hole and any other web server are untouched).
+# Written by phls setup; changes are overwritten on update. Port: change WEB_PORT in $CONF, then run: sudo phls update
+server.modules        = ( "mod_access", "mod_alias", "mod_cgi", "mod_setenv" )
+server.document-root  = "$PHLS_WEB"
+server.port           = $port
+server.username       = "www-data"
+server.groupname      = "www-data"
+server.tag            = "phls"
+server.errorlog-use-syslog = "enable"
+server.max-connections = 32
+server.max-request-size = 64
+$v6
+index-file.names      = ( "dash.html" )
+dir-listing.activate  = "disable"
+url.access-deny       = ( "~", ".inc", ".conf", ".tmp" )
+mimetype.assign       = ( ".html" => "text/html; charset=utf-8", ".json" => "application/json; charset=utf-8",
+                          ".css" => "text/css; charset=utf-8", ".js" => "text/javascript; charset=utf-8",
+                          ".png" => "image/png", ".ico" => "image/x-icon", "" => "text/plain; charset=utf-8" )
+setenv.add-response-header = ( "X-Content-Type-Options" => "nosniff", "Referrer-Policy" => "same-origin" )
+alias.url             = ( "/api/" => "$OPT/cgi/" )
+\$HTTP["url"] =~ "^/api/" { cgi.assign = ( "" => "" ) }
+EOF
+    cat > "$UNITDIR/phls-web.service" <<EOF
+[Unit]
+Description=Pi-hole Latency Stats dashboard (lighttpd on port $port)
+After=network.target
+
+[Service]
+ExecStartPre=/usr/sbin/lighttpd -tt -f $PHLS_ETC/lighttpd.conf
+ExecStart=/usr/sbin/lighttpd -D -f $PHLS_ETC/lighttpd.conf
+ExecReload=/bin/kill -USR1 \$MAINPID
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
+install_web_libs() {
+    local l
+    for l in "${LIB_URLS[@]}"; do
+        local tmp; tmp=$(mktemp)
+        if curl -fsL --retry 2 --connect-timeout 15 "${l%%|*}" -o "$tmp" 2>/dev/null && [ -s "$tmp" ]; then install -m 644 "$tmp" "$PHLS_WEB/${l##*|}"
+        elif [ ! -s "$PHLS_WEB/${l##*|}" ]; then warn "Could not download ${l##*|}; the dashboard will load it from the internet instead."; fi
+        rm -f "$tmp"
+    done
+}
+
+# --- upgrade from v4 (~/phls + cron) ---
+find_v4() {
+    local d cand=() h
+    h=$(getent passwd "${SUDO_USER:-root}" | cut -d: -f6)
+    for d in "$h/phls" /root/phls /home/*/phls; do
+        [ -f "$d/pihole_stats.sh" ] || continue
+        local x dup=0; for x in "${cand[@]}"; do [ "$x" -ef "$d" ] && dup=1; done
+        [ $dup -eq 0 ] && cand+=("$d")
+    done
+    [ ${#cand[@]} -gt 0 ] && printf '%s\n' "${cand[@]}"
+    return 0
+}
+
+old_cron_lines() {   # user<TAB>line for every crontab line of an old install
+    local u
+    for u in $( { echo root; ls /var/spool/cron/crontabs 2>/dev/null; } | sort -u); do
+        crontab -l -u "$u" 2>/dev/null | grep -E 'PHLS-ID:|pihole_stats\.sh|phls_version_check' | grep -v '^[[:space:]]*#' | sed "s/^/$u\t/"
+    done | sort -u
+}
+
+disable_old_cron() {
+    local u tmp
+    for u in $( { echo root; ls /var/spool/cron/crontabs 2>/dev/null; } | sort -u); do
+        crontab -l -u "$u" 2>/dev/null | grep -qE 'PHLS-ID:|pihole_stats\.sh|phls_version_check' || continue
+        tmp=$(mktemp)
+        crontab -l -u "$u" 2>/dev/null | sed -E '/^[[:space:]]*#/! { /PHLS-ID:|pihole_stats\.sh|phls_version_check/ s/^/#PHLS-v4-disabled# / }' > "$tmp"
+        crontab -u "$u" "$tmp" && ok "Old cron jobs of user $u disabled (commented out)"
+        rm -f "$tmp"
+    done
+}
+
+migrate_v4() {
+    local d="$1" old_dash p f freq every ucc line
+    old_dash=$(sed -n 's/^DASH_PATH="\(.*\)"[[:space:]]*$/\1/p' "$d/.phls_install.conf" 2>/dev/null | head -n 1)
+    [ -z "$old_dash" ] && [ -f /var/www/html/phls/dash.html ] && old_dash=/var/www/html/phls
+    step "Moving your settings from $d"
+    local list=()
+    if [ -s "$d/cron/cron_profiles.db" ]; then
+        while IFS='|' read -r p freq _ f; do
+            phls_valid_profile_name "$p" || continue
+            list+=("$p|$freq|${f:-$d/cron/$p.conf}")
+        done < "$d/cron/cron_profiles.db"
+    fi
+    [ ${#list[@]} -eq 0 ] && [ -f "$d/pihole_stats.conf" ] && list+=("default|5m|$d/pihole_stats.conf")
+    for line in "${list[@]}"; do
+        IFS='|' read -r p freq f <<< "$line"
+        local dst; dst=$(profile_conf "$p")
+        if [ -e "$dst" ]; then say "  profile $p: already there, kept"; continue; fi
+        [ -r "$f" ] || { warn "  profile $p: $f not found, skipped"; continue; }
+        new_profile "$p" ""
+        # copy the old values of every setting the engine knows (parsed, never executed)
+        local k v
+        for k in DBfile ENABLE_UNBOUND MAX_DB_DAYS ENABLE_MATH_ALL_TIME L01 L02 L03 L04 L05 L06 L07 L08 L09 L10 L11 L12 L13 L14 L15 L16 L17 L18 L19 L20 \
+                 MIN_LATENCY_CUTOFF MAX_LATENCY_CUTOFF MAX_HISTORY_ENTRIES ENABLE_MATH_12H ENABLE_MATH_24H ENABLE_MATH_7D ENABLE_MATH_30D \
+                 ENABLE_UPSTREAM_DIST ENABLE_UPSTREAM_MATH_ALL_TIME ENABLE_MANUAL_REFINEMENT UPSTREAM_DIST_MIN_CUTOFF ENABLE_CACHE; do
+            grep -q "^$k=" "$f" || continue
+            v=$(phls_get "$f" "$k")
+            if [ "$k" = "DBfile" ] || [ "$k" = "ENABLE_MANUAL_REFINEMENT" ] || phls_valid "$k" "$v" >/dev/null; then
+                [[ "$v" == *[\"\'\\\`\$]* ]] || phls_set "$dst" "$k" "$v"
+            fi
+        done
+        local cargs; cargs=$(sed -n "s/^CONFIG_ARGS=['\"]\(.*\)['\"].*/\1/p" "$f" | head -n 1)
+        if [[ "$cargs" =~ ^-(e?dm)[[:space:]]+\"?([A-Za-z0-9.*_-]+)\"?$ ]]; then sed -i "s|^CONFIG_ARGS=.*|CONFIG_ARGS='-${BASH_REMATCH[1]} ${BASH_REMATCH[2]}'|" "$dst"
+        elif [ -n "$cargs" ]; then warn "  profile $p: extra arguments '$cargs' not carried over (only domain filters are)"; fi
+        every="${freq%[ms]}"; [[ "$freq" == *s ]] && every=1
+        [[ "$every" =~ ^[0-9]+$ ]] && [ "$every" -ge 1 ] && [ "$every" -le 1440 ] || every=5
+        phls_set "$dst" RUN_EVERY "$every"
+        ucc=false; old_cron_lines | grep -F "PHLS-ID:$p" | grep -q -- '-ucc' && ucc=true
+        [ "$p" = "default" ] && old_cron_lines | grep -- '-dash' | grep -E "\"?default\"?" | grep -q -- '-ucc' && ucc=true
+        phls_set "$dst" UCC "$ucc"
+        # history, snapshot and cache
+        if [ -n "$old_dash" ]; then
+            local x; for x in "dash_$p.json" "dash_$p.h.json"; do
+                [ -s "$old_dash/$x" ] && [ ! -e "$PHLS_WEB/$x" ] && cp -p "$old_dash/$x" "$PHLS_WEB/$x" && chown www-data:www-data "$PHLS_WEB/$x" 2>/dev/null
+            done
+        fi
+        [ -s "$d/cache/phls_$p.db" ] && [ ! -e "$PHLS_LIB/cache/phls_$p.db" ] && cp "$d/cache/phls_$p.db" "$PHLS_LIB/cache/" && chown root:root "$PHLS_LIB/cache/phls_$p.db"
+        ok "  profile $p (every $every min$([ "$ucc" = true ] && echo ', Unbound cache counts'))"
+    done
+    MIGRATED_FROM="$d"; MIGRATED_DASH="$old_dash"
+}
+
+redirect_old_dashboard() {   # leave a forwarding page where the old dashboard was
+    local old="$1" url="$2"
+    [ -n "$old" ] && [ -f "$old/dash.html" ] && [ -n "$url" ] || return 0
+    [ -f "$old/dash.html.v4" ] || cp -p "$old/dash.html" "$old/dash.html.v4"
+    cat > "$old/dash.html" <<EOF
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>PHLS has moved</title>
+<script>var p=new URLSearchParams(location.search).get('p');var u='http://'+location.hostname+':${url##*:}'.replace(/\/$/,'')+'/'+(p?'?p='+encodeURIComponent(p):'');location.replace(u);</script>
+</head><body>The dashboard has moved to <a href="$url">$url</a>.</body></html>
+EOF
+}
+
+cmd_setup() {
+    need_root
+    local SRC="$SELF_DIR" f
+    for f in pihole_stats.sh phls lib/settings.sh cgi/settings dash.html favicon.png version; do
+        [ -s "$SRC/$f" ] || die "Release files incomplete: $f missing in $SRC"
+    done
+    [ "$SRC" -ef "$OPT" ] && die "Run setup from the downloaded release folder (or use: sudo phls update)."
+
+    say "${B}Pi-hole Latency Stats $PHLS_VERSION — setup${N}"
+    step "Checking this system"
+    detect_pihole
+    ok "Pi-hole $PIHOLE_VER, database $PIHOLE_DB ($PIHOLE_DAYS days)"
+    have_systemd || die "systemd is required."
+    local fresh=true; [ -r "$CONF" ] && fresh=false
+    local v4=(); mapfile -t v4 < <(find_v4)
+    [ "$fresh" = true ] && [ ${#v4[@]} -gt 0 ] && ok "Found PHLS v4 in: ${v4[*]} (its settings and history will be moved over)"
+    command -v unbound-control >/dev/null 2>&1 && ok "Unbound found: its stats will be included"
+
+    # --- the questions ---
+    local want_dash="$(conf_get DASHBOARD)"
+    if [ "$fresh" = true ]; then
+        step "Questions"
+        say "The web dashboard shows charts of your DNS latency in the browser and lets you change settings there."
+        if ask_yn "Install the web dashboard?" Y; then want_dash=yes; else want_dash=no; fi
+    fi
+    local cron_lines; cron_lines=$(old_cron_lines)
+    local disable_cron=false
+    if [ -n "$cron_lines" ]; then
+        say ""; say "These old cron jobs run PHLS v4 (the new version schedules itself):"
+        printf '%s\n' "$cron_lines" | sed 's/^/   /'
+        ask_yn "Disable them? (they are commented out, not deleted)" Y && disable_cron=true
+    fi
+
+    # --- packages ---
+    step "Installing what is needed"
+    local pk=()
+    command -v sqlite3 >/dev/null 2>&1 || pk+=(sqlite3)
+    command -v curl >/dev/null 2>&1 || pk+=(curl)
+    command -v flock >/dev/null 2>&1 || pk+=(util-linux)
+    command -v ionice >/dev/null 2>&1 || pk+=(util-linux)
+    command -v awk >/dev/null 2>&1 || pk+=(mawk)
+    local installed_lighttpd="$(conf_get INSTALLED_LIGHTTPD)"
+    if [ "$want_dash" = yes ] && ! command -v lighttpd >/dev/null 2>&1 && [ ! -x /usr/sbin/lighttpd ]; then
+        pk+=(lighttpd); installed_lighttpd=yes
+    fi
+    if [ ${#pk[@]} -gt 0 ]; then
+        # keep apt from starting the stock lighttpd service on port 80 (Pi-hole's port)
+        local prc=false
+        if [[ " ${pk[*]} " == *" lighttpd "* ]] && [ ! -e /usr/sbin/policy-rc.d ]; then
+            printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d; chmod 755 /usr/sbin/policy-rc.d; prc=true
+        fi
+        apt_install $(printf '%s\n' "${pk[@]}" | sort -u)
+        [ "$prc" = true ] && rm -f /usr/sbin/policy-rc.d
+        if [[ " ${pk[*]} " == *" lighttpd "* ]]; then
+            # PHLS runs its own lighttpd instance; the stock one would fight Pi-hole for port 80
+            systemctl disable --now lighttpd.service >/dev/null 2>&1
+        fi
+    fi
+    ok "Packages ready"
+
+    # --- files ---
+    step "Installing files"
+    mkdir -p "$OPT/lib" "$OPT/cgi" "$PHLS_PROFILES" "$PHLS_LIB/cache" "$PHLS_STATUS" "$PHLS_PENDING" "$LOGDIR"
+    install -m 755 "$SRC/pihole_stats.sh" "$OPT/pihole_stats.sh"
+    install -m 755 "$SRC/phls" "$OPT/phls"
+    install -m 644 "$SRC/lib/settings.sh" "$OPT/lib/settings.sh"
+    install -m 755 "$SRC/cgi/settings" "$OPT/cgi/settings"
+    install -m 644 "$SRC/version" "$OPT/version"
+    ln -sf "$OPT/phls" /usr/local/bin/phls
+    chmod 755 "$PHLS_ETC" "$PHLS_PROFILES" "$PHLS_LIB" "$PHLS_STATUS" "$PHLS_LIB/cache"
+    chown root:root "$PHLS_LIB/cache"; chmod 700 "$PHLS_LIB/cache"
+    if getent group www-data >/dev/null; then chown root:www-data "$PHLS_PENDING"; chmod 2770 "$PHLS_PENDING"; else chmod 700 "$PHLS_PENDING"; fi
+
+    # --- global settings file ---
+    local port; port=$(conf_get WEB_PORT)
+    [ "$want_dash" = yes ] && { [[ "$port" =~ ^[0-9]+$ ]] || port=$(pick_port); }
+    {
+        echo "# Pi-hole Latency Stats - global settings (written by phls setup)"
+        echo "# Profile settings are in $PHLS_PROFILES/<name>.conf  (easiest: sudo phls edit)"
+        echo "DASHBOARD=\"$want_dash\""
+        echo "WEB_PORT=\"$port\""
+        echo "PIHOLE_DB=\"$PIHOLE_DB\""
+        echo "PIHOLE_DAYS=\"$PIHOLE_DAYS\""
+        echo "PIHOLE_API=\"$PIHOLE_API\""
+        echo "PIHOLE_API_INSECURE=\"$PIHOLE_API_INSECURE\""
+        echo "INSTALLED_LIGHTTPD=\"${installed_lighttpd:-no}\""
+        local inst; inst=$(conf_get INSTALLED); echo "INSTALLED=\"${inst:-$(date '+%F')}\""
+    } > "$CONF.tmp"
+    chmod 644 "$CONF.tmp"; mv -f "$CONF.tmp" "$CONF"
+
+    # --- dashboard files ---
+    if [ "$want_dash" = yes ]; then
+        mkdir -p "$PHLS_WEB"
+        install -m 644 "$SRC/dash.html" "$PHLS_WEB/dash.html"
+        install -m 644 "$SRC/favicon.png" "$PHLS_WEB/favicon.png"
+        [ -s "$PHLS_WEB/version" ] || install -m 644 "$SRC/version" "$PHLS_WEB/version"
+        install_web_libs
+        chown -R www-data:www-data "$PHLS_WEB" 2>/dev/null; chmod 755 "$PHLS_WEB"
+    else
+        mkdir -p "$PHLS_WEB"   # snapshots are still written (dash_<profile>.json)
+    fi
+
+    # --- profiles ---
+    if [ "$fresh" = true ] && [ ${#v4[@]} -gt 0 ]; then
+        local d; for d in "${v4[@]}"; do migrate_v4 "$d"; done
+    fi
+    [ "$disable_cron" = true ] && disable_old_cron
+    if [ -z "$(profiles)" ]; then new_profile default ""; ok "Profile 'default' created"; fi
+    # keep profiles pointing at the current database / dashboard folder
+    local p; for p in $(profiles); do
+        f=$(profile_conf "$p")
+        [ "$(phls_get "$f" DASH_DIR)" = "$PHLS_WEB" ] || phls_set "$f" DASH_DIR "$PHLS_WEB"
+        grep -q '^RUN_EVERY=' "$f" || phls_set "$f" RUN_EVERY "$PHLS_DEFAULTS_RUN_EVERY"
+        grep -q '^UCC=' "$f" || phls_set "$f" UCC "$PHLS_DEFAULTS_UCC"
+        grep -q '^UPSTREAM_DIST_MIN_CUTOFF=' "$f" || phls_set "$f" UPSTREAM_DIST_MIN_CUTOFF "4"
+        grep -q '^EXCLUDE_PTR=' "$f" || phls_set "$f" EXCLUDE_PTR "true"
+        grep -q '^UPSTREAM_BY_PROVIDER=' "$f" || phls_set "$f" UPSTREAM_BY_PROVIDER "false"
+        local k; for k in PROFILE_TYPE FILTER_DOMAIN REPORT_RANGE REPORT_FROM REPORT_TO REPORT_COUNT REPORT_NX REPORT_UNBOUND; do
+            grep -q "^$k=" "$f" || phls_set "$f" "$k" "${PHLS_DEFAULT[$k]}"
+        done
+        # 5.0 beta 1-11 kept a domain filter as extra arguments: now it is the "Domains" setting
+        local cargs; cargs=$(sed -n "s/^CONFIG_ARGS=['\"]\(.*\)['\"][[:space:]]*$/\1/p" "$f" | head -n 1)
+        if [[ "$cargs" =~ ^-(e?dm)[[:space:]]+\"?([A-Za-z0-9.*_-]{1,253})\"?$ ]]; then
+            local dv="${BASH_REMATCH[2]}"
+            [ "${BASH_REMATCH[1]}" = "dm" ] && [[ "$dv" != *'*'* ]] && dv="*$dv*"   # -dm = "contains"
+            phls_set "$f" FILTER_DOMAIN "$dv" && sed -i "s|^CONFIG_ARGS=.*|CONFIG_ARGS=''|" "$f"
+        fi
+    done
+
+    # --- services ---
+    step "Setting up the schedule$([ "$want_dash" = yes ] && echo ' and the web server')"
+    write_units
+    if [ "$want_dash" = yes ]; then
+        write_web_units "$port"
+        /usr/sbin/lighttpd -tt -f "$PHLS_ETC/lighttpd.conf" >/dev/null 2>&1 || warn "lighttpd rejected $PHLS_ETC/lighttpd.conf"
+    else
+        systemctl disable --now phls-web.service >/dev/null 2>&1; rm -f "$UNITDIR/phls-web.service" "$PHLS_ETC/lighttpd.conf"
+    fi
+    systemctl daemon-reload
+    for p in $(profiles); do [ "$(phls_profile_type "$p")" = report ] && continue; write_timer_dropin "$p"; done
+    systemctl daemon-reload
+    for p in $(profiles); do
+        if [ "$(phls_profile_type "$p")" = report ]; then unschedule_profile "$p"; continue; fi
+        systemctl enable "phls@$p.timer" >/dev/null 2>&1; systemctl restart "phls@$p.timer"; write_next_run "$p" 30
+    done
+    systemctl enable --now phls-apply.path phls-update-check.timer >/dev/null 2>&1
+    if [ "$want_dash" = yes ]; then
+        systemctl enable phls-web.service >/dev/null 2>&1
+        systemctl restart phls-web.service
+        sleep 1
+        systemctl is-active --quiet phls-web.service && ok "Web server running on port $port" || warn "The web server did not start: sudo systemctl status phls-web"
+    fi
+    refresh_auth_info force
+    ok "Profiles scheduled: $(for p in $(profiles); do [ "$(phls_profile_type "$p")" = report ] || printf '%s ' "$p"; done)"
+    ( cmd_check_update ) >/dev/null 2>&1 &
+
+    # --- first run ---
+    step "$([ "$fresh" = true ] && echo "First analysis" || echo "Running the analysis once")"
+    [ -s "$PHLS_WEB/dash_default.json" ] || say "This reads the whole Pi-hole database once (up to a minute on a Pi Zero with millions of queries)..."
+    local first; first=$(profiles | grep -x default || profiles | head -n 1)
+    cmd_run "$first" --quiet --wait && ok "Analysis done" || warn "The first run failed: sudo phls logs $first"
+
+    local url; url=$(dash_url)
+    if [ -n "$MIGRATED_DASH" ] && [ -n "$url" ]; then redirect_old_dashboard "$MIGRATED_DASH" "$url"; fi
+
+    say ""
+    say "${G}${B}✔ Pi-hole Latency Stats $PHLS_VERSION is installed.${N}"
+    [ -n "$url" ] && say "  Dashboard:  ${C}${B}$url${N}"
+    say "  Manage:     ${C}sudo phls${N}   (status, settings, profiles, update, uninstall)"
+    if [ -n "$MIGRATED_FROM" ]; then
+        say "  Your old v4 folder is untouched: $MIGRATED_FROM"
+        say "  When everything works, delete it with:  sudo rm -rf $MIGRATED_FROM"
+        [ -n "$MIGRATED_DASH" ] && say "  The old dashboard address now forwards to the new one."
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# Uninstall
+# ------------------------------------------------------------------------------
+cmd_uninstall() {
+    need_root
+    ask_yn "Remove Pi-hole Latency Stats?" N || return 0
+    local keep=true
+    ask_yn "Also delete your settings and dashboard history?" N && keep=false
+    local p
+    for p in $(profiles); do systemctl disable --now "phls@$p.timer" >/dev/null 2>&1; rm -rf "$UNITDIR/phls@$p.timer.d"; done
+    systemctl disable --now phls-web.service phls-apply.path phls-update-check.timer >/dev/null 2>&1
+    rm -f "$UNITDIR"/phls@.service "$UNITDIR"/phls@.timer "$UNITDIR"/phls-apply.path "$UNITDIR"/phls-apply.service \
+          "$UNITDIR"/phls-update-check.service "$UNITDIR"/phls-update-check.timer "$UNITDIR"/phls-web.service
+    systemctl daemon-reload
+    local lt; lt=$(conf_get INSTALLED_LIGHTTPD)
+    rm -f /usr/local/bin/phls "$PHLS_ETC/lighttpd.conf"
+    if [ "$keep" = true ]; then
+        rm -f "$PHLS_WEB"/dash.html "$PHLS_WEB"/favicon.png "$PHLS_WEB"/version "$PHLS_WEB"/bootstrap.min.css "$PHLS_WEB"/chart.js "$PHLS_WEB"/chartjs-plugin-datalabels.js
+        rm -rf "$PHLS_PENDING" "$PHLS_STATUS"
+        say "Kept: settings in $PHLS_ETC, history in $PHLS_WEB, cache in $PHLS_LIB (a new install picks them up)."
+    else
+        rm -rf "$PHLS_ETC" "$PHLS_LIB" "$PHLS_WEB" "$LOGDIR"
+    fi
+    if [ "$lt" = yes ] && ask_yn "Remove the lighttpd package (PHLS installed it)?" Y; then
+        DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq lighttpd >/dev/null 2>&1 && ok "lighttpd removed"
+    fi
+    rm -rf "$OPT"
+    ok "Pi-hole Latency Stats removed."
+}
+
+# ------------------------------------------------------------------------------
+# Menu
+# ------------------------------------------------------------------------------
+cmd_menu() {
+    need_root
+    while true; do
+        say ""; cmd_status; say ""
+        say " ${B}1${N}) Change settings      ${B}4${N}) Add a profile        ${B}7${N}) Update PHLS"
+        say " ${B}2${N}) Run analysis now     ${B}5${N}) Delete a profile     ${B}8${N}) Uninstall"
+        say " ${B}3${N}) Show settings        ${B}6${N}) Logs of a profile    ${B}0${N}) Exit"
+        local a; a=$(ask_val "Choose" "0")
+        case "$a" in
+            1) cmd_edit ;;
+            2) cmd_run "$(pick_profile "Profile")" ;;
+            3) cmd_show "$(pick_profile "Profile")" ;;
+            4) cmd_add "" ;;
+            5) cmd_delete "" ;;
+            6) cmd_logs "$(pick_profile "Profile")" ;;
+            7) cmd_update; return ;;
+            8) cmd_uninstall; return ;;
+            0|q|"") return 0 ;;
+        esac
+    done
+}
+
+usage() {
+    sed -n '3,15p' "$SELF" | sed 's/^# \{0,1\}//'
+}
+
+# ------------------------------------------------------------------------------
+CMD="${1:-}"; shift 2>/dev/null || true
+ARGS=(); for a in "$@"; do case "$a" in --yes|-y) ASSUME_YES=true ;; *) ARGS+=("$a") ;; esac; done
+set -- "${ARGS[@]}"
+case "$CMD" in
+    "")            if [ -n "$TTY_IN" ] && [ "$EUID" -eq 0 ]; then cmd_menu; else cmd_status; fi ;;
+    menu)          cmd_menu ;;
+    status)        cmd_status ;;
+    run)           cmd_run "$@" ;;
+    apply)         cmd_apply ;;
+    show)          cmd_show "$@" ;;
+    set)           cmd_set "$@" ;;
+    edit|settings) cmd_edit "$@" ;;
+    add)           cmd_add "$@" ;;
+    delete|remove) cmd_delete "$@" ;;
+    clear)         cmd_clear "$@" ;;
+    reset)         cmd_reset ;;
+    logs|log)      cmd_logs "$@" ;;
+    url)           dash_url && echo || die "No dashboard installed." ;;
+    update)        cmd_update "$@" ;;
+    check-update)  cmd_check_update ;;
+    setup|install) cmd_setup ;;
+    uninstall)     cmd_uninstall ;;
+    version|-v|--version) echo "$PHLS_VERSION${PHLS_BUILD:+-$PHLS_BUILD}" ;;
+    help|-h|--help) usage ;;
+    *) usage; exit 1 ;;
+esac
