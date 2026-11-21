@@ -1,217 +1,159 @@
-# 📘 Pi-hole Latency Stats: Manual Installation Guide
+# 📦 Pi-hole Latency Stats 5.0: Manual and Offline Installation
 
-**Prerequisites:**
+**Most people don't need this page.** The one-line install in the [README](../README.md) does everything:
 
-* A Raspberry Pi (or server) running Pi-hole.
-* Access to the terminal (via SSH or directly).
-* The `.zip` file containing your project code.
+```bash
+curl -sSL https://github.com/panoc/pihole-latency-stats/releases/latest/download/install_phls.sh | sudo bash
+```
+
+This page is for when you want to:
+
+- [look at the files before installing, or install without piping from the internet](#1-install-from-downloaded-files)
+- [install without asking any questions](#2-install-without-questions)
+- [install without the web dashboard](#3-without-the-web-dashboard)
+- [use a different dashboard port](#4-a-different-dashboard-port)
+- [install from a copy of the repository](#5-from-a-copy-of-the-repository)
+- [use only the analysis script, without installing anything](#6-only-the-script-no-installation)
+
+It also explains [what the installer does](#what-the-installer-does) and [how to check that everything works](#check-that-everything-works).
 
 ---
 
-### Phase 1: Preparation & Dependencies
+## Before you start
 
-Before installing the scripts, we need to make sure your system has the necessary tools.
-
-1. **Check your username:**
-Before we begin, run this command to confirm your actual username. You will need this later to replace placeholders like `<YOUR_USERNAME>`.
-
-```bash
-whoami
-
-```
-
-2. **Update your system and install tools:**
-Run the following command to install SQLite, math tools, and Curl:
-
-```bash
-sudo apt-get update
-sudo apt-get install sqlite3 bc unzip curl
-
-```
+- **Pi-hole v6**, installed directly on the machine (not in Docker). Check with `pihole -v`.
+- A Debian-based system with **systemd**: Raspberry Pi OS, Debian, Ubuntu, DietPi…
+- A terminal on the Pi (over SSH or directly), and a user that can use `sudo`.
 
 ---
 
-### Phase 2: Installing the Core Scripts
+## 1. Install from downloaded files
 
-We will separate the main script from the automation tools for better organization.
+1. On the [latest release page](https://github.com/panoc/pihole-latency-stats/releases/latest), download these three files:
+   - `install_phls.sh`
+   - `phls_assets.tar.gz`
+   - `phls_assets.tar.gz.sha256`
+2. Copy them to the Pi, for example into `/tmp`. From Windows PowerShell:
+   ```powershell
+   scp install_phls.sh phls_assets.tar.gz phls_assets.tar.gz.sha256 pi@192.168.1.2:/tmp/
+   ```
+3. On the Pi, check that the download is complete. It must say **OK**:
+   ```bash
+   cd /tmp
+   sha256sum -c phls_assets.tar.gz.sha256
+   ```
+4. Install:
+   ```bash
+   sudo bash install_phls.sh --local phls_assets.tar.gz
+   ```
 
-1. **Create the directory structure:**
-We will create a main folder (`phls`) and a specific subfolder (`cron`) inside it.
+The same command also **updates** an existing install, or **upgrades** a v4 install.
 
-```bash
-mkdir -p ~/phls/cron
-
-```
-
-2. **Place the files:**
-Transfer your files to the Pi (via SFTP or copy/paste) and place them strictly as follows:
-
-* **Main Folder (`~/phls/`):**
-* `pihole_stats.sh`
-* `version`
-
-
-* **Cron Subfolder (`~/phls/cron/`):**
-* `cronmaker.sh`
-
-
-
-3. **Make the scripts executable:**
-We need to tell Linux that these files are programs.
-
-```bash
-chmod +x ~/phls/pihole_stats.sh
-chmod +x ~/phls/cron/cronmaker.sh
-
-```
-
-4. **Generate the Master Configuration:**
-Run the script once manually. This generates the **default configuration file** (`pihole_stats.conf`) in the main folder.
-
-```bash
-cd ~/phls
-./pihole_stats.sh
-
-```
-
-5. **⚠️ LINK THE DASHBOARD (CRITICAL STEP):**
-You must tell the script where to save the JSON data so the web dashboard can see it.
-
-* Open the config file: `nano ~/phls/pihole_stats.conf`
-* Find the line: `DASH_DIR="..."`
-* Change it to point to your web server folder:
-
-```bash
-DASH_DIR="/var/www/html/admin/img/dash"
-
-```
-
-* Save and exit (Ctrl+X, Y, Enter).
+> **No internet on the Pi?** The installer then can't install missing packages. Install `sqlite3` (and `lighttpd` for the dashboard) first, from your usual source. The dashboard's chart library can't be downloaded either, so your **browser** loads it from the internet instead. That works as long as the computer you view the dashboard on has internet.
 
 ---
 
-### Phase 3: Installing the Dashboard
+## 2. Install without questions
 
-The visual frontend must live in the web server directory so you can view it in your browser.
-
-1. **Create the Dashboard folder:**
-We will use a standard location that Pi-hole's web server can "see."
+Add `--yes` to use the default answers (install the dashboard, switch off old v4 cron jobs):
 
 ```bash
-sudo mkdir -p /var/www/html/admin/img/dash
-
+curl -sSL https://github.com/panoc/pihole-latency-stats/releases/latest/download/install_phls.sh | sudo bash -s -- --yes
 ```
-
-2. **Place the files:**
-Copy/Move the following files into that new folder:
-
-* `dash.html`
-* `favicon.png`
-* `version` (Copy the version file here too)
-
-*Command line example:*
-
+or, with downloaded files:
 ```bash
-sudo cp dash.html /var/www/html/admin/img/dash/
-sudo cp favicon.png /var/www/html/admin/img/dash/
-sudo cp version /var/www/html/admin/img/dash/
-
-```
-
-3. **Download external assets:**
-Since you are doing a manual install, you need to grab the styling and graphing libraries manually.
-
-```bash
-cd /var/www/html/admin/img/dash
-sudo curl -L -o bootstrap.min.css https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css
-sudo curl -L -o chart.js https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js
-
-```
-
-4. **Set Permissions:**
-Give the web server (user `www-data`) permission to read these files, and ensure your user can write to the folder if needed.
-
-```bash
-sudo chown -R www-data:www-data /var/www/html/admin/img/dash
-sudo chmod -R 775 /var/www/html/admin/img/dash
-
+sudo bash install_phls.sh --local phls_assets.tar.gz --yes
 ```
 
 ---
 
-### Phase 4: Automation (The Cron Job)
+## 3. Without the web dashboard
 
-To update the dashboard automatically, you need a "Cron Job." You have two distinct ways to set this up.
+Answer **n** when the installer asks *"Install the web dashboard?"*. PHLS then installs no web server and opens no port. Everything still runs on its schedule, and you use it with the [`phls` command](COMMAND_LINE.md):
 
-#### Option A: Using `cronmaker.sh` (Easier & Safer)
+- `phls status` shows each profile's last run.
+- [Report profiles](USAGE.md#6-reports) print their reports with `sudo phls run <name>`.
+- The results are still saved as JSON in `/var/www/phls/`, for other tools to read.
 
-Your `cronmaker.sh` script uses its own **profile system**. When you create a profile (e.g., "default"), it generates a *new* config file inside `~/phls/cron/default.conf`.
-
-1. **Run the Cron Maker:**
-
-```bash
-sudo ~/phls/cron/cronmaker.sh
-
-```
-
-2. **Follow the Prompts:**
-
-* **Profile Name:** Type `default`.
-* **Customize Tiers/Cutoffs:** Answer `n` (unless you need specific filtering).
-* **Frequency:** Type `5` (minutes).
-* **Unbound Stats:** Type `y`.
-
-3. **Result:** The script automatically schedules the job. It will use the configuration file located at `~/phls/cron/default.conf`.
-
-#### Option B: Creating the Job Manually (Advanced)
-
-If you prefer to write the cron line yourself, you must be careful with paths. You should explicitly point to the **Master Configuration** file we created in Phase 2 to ensure the script behaves exactly as you configured it.
-
-**⚠️ Critical Path Warning:**
-Do not blindly copy `/home/pi/` if your username is not `pi`. Use the username you found in Phase 1.
-
-1. **Open the Cron editor:**
-
-```bash
-sudo crontab -e
-
-```
-
-2. **Add the line (One single line):**
-Replace `<YOUR_USERNAME>` with your actual username (e.g., `admin`, `dietpi`, `ubuntu`).
-
-```cron
-*/5 * * * * export PATH=$PATH:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; cd /home/<YOUR_USERNAME>/phls && ./pihole_stats.sh -dash "default" -c /home/<YOUR_USERNAME>/phls/pihole_stats.conf -snap -ucc >> /home/<YOUR_USERNAME>/phls/cron/default_debug.log 2>&1
-
-```
-
-**Breakdown of flags used:**
-
-* `-dash "default"`: Runs in dashboard mode; output files will be named `dash_default.json`.
-* `-c .../pihole_stats.conf`: **Crucial.** Explicitly tells the script to use the config file where we defined `DASH_DIR`.
-* `-snap`: **Mandatory.** Uses a safe snapshot for the new parallel processing engine.
-* `-ucc`: Includes Unbound Cache Counts.
+To add the dashboard later, change the line `DASHBOARD="no"` to `DASHBOARD="yes"` in `/etc/phls/phls.conf`, then run `sudo phls update`. That reinstalls with the dashboard.
 
 ---
 
-### Phase 5: Verification
+## 4. A different dashboard port
 
-1. **Check the Dashboard:**
-Open your web browser and go to:
-`http://<YOUR_PI_IP>/admin/img/dash/dash.html?p=default`
-2. **Force an update (Manual Test):**
-If the dashboard is empty, run this command manually to populate it immediately (replace `<YOUR_USERNAME>`):
+The installer uses the first free port of 8080, 8081, 8088, 8090, 8888, 8008, 8181, 8282 and 9080, and never one of Pi-hole's own ports. To choose your own:
+
+1. Edit the settings file:
+   ```bash
+   sudo nano /etc/phls/phls.conf
+   ```
+   and change the line `WEB_PORT="8080"` to the port you want, e.g. `WEB_PORT="8095"`.
+2. Apply it by reinstalling:
+   ```bash
+   sudo phls update
+   ```
+3. Check the new address with `phls status`.
+
+---
+
+## 5. From a copy of the repository
+
+If you cloned or downloaded the repository (for example to try changes), run the setup from its `phls_assets` folder:
 
 ```bash
-sudo /home/<YOUR_USERNAME>/phls/pihole_stats.sh -dash "default" -c /home/<YOUR_USERNAME>/phls/pihole_stats.conf -snap -ucc
-
+git clone https://github.com/panoc/pihole-latency-stats.git
+cd pihole-latency-stats
+sudo bash phls_assets/phls setup
 ```
 
 ---
 
-### 📂 Final File Structure Summary
+## 6. Only the script, no installation
 
-* **Main Script:** `~/phls/pihole_stats.sh`
-* **Master Config:** `~/phls/pihole_stats.conf` (Edit `DASH_DIR` here!)
-* **Cron Tools:** `~/phls/cron/cronmaker.sh`
-* **Dashboard:** `/var/www/html/admin/img/dash/dash.html`
+The analysis script `pihole_stats.sh` also works on its own, like in v4: no schedule, no dashboard, nothing installed. That's handy for a quick look:
+
+```bash
+curl -sSLO https://raw.githubusercontent.com/panoc/pihole-latency-stats/main/phls_assets/pihole_stats.sh
+sudo bash pihole_stats.sh -24h
+```
+
+The first run creates `pihole_stats.conf` next to the script, with the default tiers. Edit that file to change them. All options are in the [Command Line guide](COMMAND_LINE.md#3-advanced-pihole_statssh-directly). It needs `sqlite3`.
+
+---
+
+## What the installer does
+
+1. **Checks the system:** Pi-hole v6, systemd, and an earlier PHLS (v4 or 5.x).
+2. **Reads Pi-hole's own settings:** the database location, how many days Pi-hole keeps, and Pi-hole's web ports. The web ports are used to check your password and to avoid using one of Pi-hole's ports for the dashboard.
+3. **Asks** whether to install the dashboard, and, when upgrading from v4, whether to switch off the old cron jobs.
+4. **Installs what is missing:** `sqlite3`, and `lighttpd` for the dashboard. lighttpd runs as **its own instance** on its own port. Pi-hole's web server and any other web site on the machine are not touched.
+5. **Copies the files:**
+
+   | Where | What |
+   |---|---|
+   | `/opt/phls/` | The program |
+   | `/etc/phls/` | Settings (`phls.conf`, `profiles/<name>.conf`) |
+   | `/var/www/phls/` | Dashboard, results and history |
+   | `/var/lib/phls/` | Cache, last reports |
+   | `/var/log/phls/` | Logs |
+   | `/usr/local/bin/phls` | The `phls` command |
+
+6. **Moves a v4 install over** (if found): profiles, history, cache and schedule. The old folder is left as it is.
+7. **Sets up the schedule** with systemd timers, plus a daily update check.
+8. **Starts the dashboard's web server** and **runs the first analysis**. This reads the whole Pi-hole database once, which can take up to a minute on a Pi Zero with millions of queries.
+
+---
+
+## Check that everything works
+
+```bash
+phls status
+```
+
+You should see the version, the dashboard address, **Web server: running**, and the `default` profile with its schedule. Then:
+
+1. Open the dashboard address in your browser. The header shows **Last Analysis** with a recent time.
+2. Click **▶ Run now**. After a few seconds the time updates.
+3. Click **⚙ Manage** to see your profiles.
+
+Something wrong? See [Troubleshooting](USAGE.md#14-troubleshooting).
