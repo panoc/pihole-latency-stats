@@ -2148,7 +2148,9 @@ async function fetchData() {
             // 2. Fetch History (several MB) only when a new analysis has run
             const hResp = await fetch(`dash_${profile}.h.json`, { cache: 'no-cache' });
             if (hResp.ok) {
-                const h = await hResp.json();
+                // A damaged history file must not stop the rest of the page (the next analysis repairs it)
+                let h = [];
+                try { h = JSON.parse(await hResp.text()); } catch (e) { console.warn('History file could not be read:', e); }
                 fullHistoryData = Array.isArray(h) ? h.filter(d => d && typeof d.date === 'string') : [];   // skip damaged entries
                 ['lat','unb','eff','mem','up'].forEach(k => renderGenericHistory(k));
                 isFirstLoad = false;

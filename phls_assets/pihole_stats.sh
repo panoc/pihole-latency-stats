@@ -22,7 +22,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 # ==============================================================================
 
-VERSION="v5.0.1"
+VERSION="v5.0.0"
 UPSTREAM_DIST_MIN_CUTOFF="4"  # Minimum latency (ms) for the Upstream Graph
 UPDATE_MSG=""
 
@@ -2020,21 +2020,41 @@ write_atomic() {
 # The file is rebuilt (trimmed to MAX_HISTORY_ENTRIES) only every ~50 runs, or to repair it.
 HISTORY_TRIM_SLACK=50
 write_history() {
-    local new="$1" f="$2" max="${MAX_HISTORY_ENTRIES:-8640}" size=0 count=0 last=""
+    local new="$1" f="$2" max="${MAX_HISTORY_ENTRIES:-8640}" size=0 count=0 last="" broken=false
     [[ "$max" =~ ^[0-9]+$ ]] && [ "$max" -gt 0 ] || max=8640
     if [ -s "$f" ]; then
         size=$(stat -c %s "$f" 2>/dev/null || echo 0)
         last=$(tail -c 1 "$f" 2>/dev/null)
-        count=$(tr -cd '}' < "$f" | wc -c)
+        # entries are separated by "},{" (an entry's own objects never contain that sequence)
+        count=$(( $(grep -o '},{' "$f" 2>/dev/null | wc -l) + 1 ))
+        # 5.0.0 / 5.0.1 cut the last "}" off entries with per-server data when trimming: repair such files
+        grep -q '\]},{' "$f" 2>/dev/null && broken=true
     fi
-    if [ "$size" -gt 2 ] && [ "$last" = "]" ] && [ "$count" -lt $((max + HISTORY_TRIM_SLACK)) ]; then
+    if [ "$broken" = false ] && [ "$size" -gt 2 ] && [ "$last" = "]" ] && [ "$count" -lt $((max + HISTORY_TRIM_SLACK)) ]; then
         if printf ',%s]' "$new" | dd of="$f" bs=65536 seek=$((size - 1)) oflag=seek_bytes conv=notrunc iflag=fullblock status=none 2>/dev/null; then
             return 0
         fi
     fi
     local tmp="$f.tmp.$$"
     if [ -s "$f" ]; then
-        { grep -o '{[^}]*}' "$f" 2>/dev/null; printf '%s\n' "$new"; } | tail -n "$max" | awk 'BEGIN { ORS = ""; print "[" } NR > 1 { print "," } { print } END { print "]" }' > "$tmp"
+        # Rewrite: keep the newest (max - 1) entries plus the new one. Each entry is rebuilt with
+        # balanced braces, so damaged entries are repaired instead of breaking the whole file.
+        awk -v RS='[}],[{]' -v keep="$((max - 1))" -v new="$new" '
+            { gsub(/\n/, ""); a[NR] = $0 }
+            END {
+                n = NR
+                sub(/^[[:space:]]*\[[[:space:]]*\{/, "", a[1])
+                sub(/\}[[:space:]]*\][[:space:]]*$/, "", a[n])
+                first = n - keep + 1; if (first < 1) first = 1
+                printf "["; k = 0
+                for (i = first; i <= n; i++) {
+                    if (a[i] !~ /"date"/) continue
+                    o = gsub(/\{/, "{", a[i]); c = gsub(/\}/, "}", a[i]); fix = ""
+                    for (j = c; j < o; j++) fix = fix "}"
+                    printf "%s{%s%s}", (k++ ? "," : ""), a[i], fix
+                }
+                printf "%s%s]", (k ? "," : ""), new
+            }' "$f" > "$tmp"
     else
         printf '[%s]' "$new" > "$tmp"
     fi
