@@ -571,7 +571,19 @@
                                 </div>
                             </div>
 
-                            <div class="col-lg-6">
+                            <div class="col-lg-6" id="dc-col" style="display:none">
+                                <div class="internal-header text-unbound">dnscrypt-proxy (Upstream)</div>
+                                <div class="stat-row"><span class="stat-label">Total Queries</span><div class="stat-data-container"><span class="stat-value" id="dc_total">--</span><span class="badge-sub" id="dc_qps"></span></div></div>
+                                <div class="stat-row"><span class="stat-label">Avg Response</span><div class="stat-data-container"><span class="stat-value" id="dc_avg">--</span><span class="badge-sub"></span></div></div>
+                                <div class="stat-row"><span class="stat-label">Cache Hits</span><div class="stat-data-container"><span class="stat-value" id="dc_hits">--</span><span class="badge-sub" id="dc_hit_pct"></span></div></div>
+                                <div class="stat-row"><span class="stat-label">Cache Misses</span><div class="stat-data-container"><span class="stat-value" id="dc_miss">--</span><span class="badge-sub" id="dc_miss_pct"></span></div></div>
+                                <hr class="my-2">
+                                <div class="stat-row" id="dc_blk_row" style="display:none"><span class="stat-label">Blocked</span><div class="stat-data-container"><span class="stat-value" id="dc_blk">--</span><span class="badge-sub">(own lists)</span></div></div>
+                                <div class="stat-row"><span class="stat-label">Resolvers</span><div class="stat-data-container"><span class="stat-value" id="dc_res_sum">--</span><span class="badge-sub" id="dc_res_sub"></span></div></div>
+                                <div class="stat-row"><span class="stat-label">Uptime</span><div class="stat-data-container"><span class="stat-value" id="dc_up">--</span><span class="badge-sub"></span></div></div>
+                            </div>
+
+                            <div class="col-lg-6" id="u-col">
                                 <div class="internal-header text-unbound">Unbound (Upstream)</div>
                                 <div class="stat-row"><span class="stat-label">Total Queries</span><div class="stat-data-container"><span class="stat-value" id="u_total">--</span><span class="badge-sub"></span></div></div>
                                 <div class="stat-row"><span class="stat-label">Hits</span><div class="stat-data-container"><span class="stat-value" id="u_hits">--</span><span class="badge-sub" id="u_hit_pct"></span></div></div>
@@ -594,7 +606,8 @@
                     <div class="card-profile-footer container-fluid p-0">
                         <div class="row g-0">
                             <div class="col-lg-6 footer-col footer-divider">Profile: <span class="footer-val" id="profile-indicator">DEFAULT</span></div>
-                            <div class="col-lg-6 footer-col">Unbound Cache: <span class="footer-val" id="ucc_msg">--</span> Msgs <span class="mx-1 opacity-25">/</span> <span class="footer-val" id="ucc_rr">--</span> RRsets</div>
+                            <div class="col-lg-6 footer-col" id="u-footer">Unbound Cache: <span class="footer-val" id="ucc_msg">--</span> Msgs <span class="mx-1 opacity-25">/</span> <span class="footer-val" id="ucc_rr">--</span> RRsets</div>
+                            <div class="col-lg-6 footer-col" id="dc-footer" style="display:none">dnscrypt-proxy Cache: <span class="footer-val" id="dc_cache_txt">--</span></div>
                         </div>
                     </div>
                 </div>
@@ -709,6 +722,109 @@
                     <div id="unb-dist-chart-content" class="card-content-wrapper">
                         <div class="chart-container" id="unb-dist-chart-container"><canvas id="unboundDistChart"></canvas></div>
                         <div class="health-bar-container" id="unb-custom-bar" ></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row card-row" id="row-dc" style="display:none;">
+            <div class="col-12">
+                <div class="card chart-card-padding border-acc-cyan">
+                    <div class="card-header border-0 bg-transparent p-0 mb-1 d-flex justify-content-between align-items-center">
+                        <div class="header-controls"><span id="dc-since" style="font-size: 0.75rem; color: var(--text-muted);">(since dnscrypt-proxy started)</span></div>
+                        <div class="header-title">DNSCRYPT-PROXY</div>
+                        <div class="header-controls">
+                            <button class="btn-icon btn-reset" onclick="resetAll()" title="Reset Order">⟲</button>
+                            <button class="btn-icon btn-move" onclick="moveUp('row-dc')">↑</button>
+                            <button class="btn-icon btn-move" onclick="moveDown('row-dc')">↓</button>
+                            <button class="btn-icon btn-min" id="dc-collapse-btn" onclick="toggleCollapse('dc-chart-content', this)">&#8722;</button>
+                        </div>
+                    </div>
+                    <div id="dc-chart-content" class="card-content-wrapper">
+                        <div class="card-body card-body-inner" style="padding-bottom: 6px;">
+                            <div class="row text-center border-bottom border-secondary stat-grid-row" id="dc-grid" style="margin-bottom: 5px;">
+                                <div class="col-3 border-end border-secondary py-1 stat-grid-col"><div class="small mb-0 stat-grid-label">AVG RESPONSE</div><div class="h6 mb-0" style="color: var(--acc-vibrant); font-weight: 700;" id="dcg_avg">--</div></div>
+                                <div class="col-3 border-end border-secondary py-1 stat-grid-col"><div class="small mb-0 stat-grid-label">QUERIES / S</div><div class="h6 mb-0" style="color: var(--acc-green); font-weight: 700;" id="dcg_qps">--</div></div>
+                                <div class="col-3 border-end border-secondary py-1 stat-grid-col"><div class="small mb-0 stat-grid-label">CACHE HIT RATE</div><div class="h6 mb-0" style="color: var(--acc-cyan); font-weight: 700;" id="dcg_hit">--</div></div>
+                                <div class="col-3 py-1"><div class="small mb-0 stat-grid-label">UPTIME</div><div class="h6 mb-0" style="color: var(--acc-yellow); font-weight: 700;" id="dcg_up">--</div></div>
+                            </div>
+                            <div class="up-info" id="dc-msg" style="display:none"></div>
+                            <div id="dc-res-table"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row card-row" id="row-dct" style="display:none;">
+            <div class="col-12">
+                <div class="card chart-card-padding border-acc-blue">
+                    <div class="card-header border-0 bg-transparent p-0 mb-3 d-flex justify-content-between align-items-center">
+                        <div class="header-controls">
+                            <button class="btn-filter f-dct f-12h active" onclick="updateTimeFilter('dct', '12h')">12H</button>
+                            <button class="btn-filter f-dct f-24h" onclick="updateTimeFilter('dct', '24h')">24H</button>
+                            <button class="btn-filter f-dct f-7d" onclick="updateTimeFilter('dct', '7d')">7D</button>
+                            <button class="btn-filter f-dct f-30d" onclick="updateTimeFilter('dct', '30d')">30D</button>
+                            <button class="btn-filter f-dct f-cust" onclick="updateTimeFilter('dct', 'cust')">Custom</button>
+                            <button class="btn-icon" id="dct-log-btn" title="Toggle Log Scale" onclick="toggleLog('dct')">㏒</button>
+                            <button class="btn-icon" id="dct-type-btn" title="Toggle Bar/Line" onclick="toggleChartType('dct')">📈</button>
+                            <button class="btn-icon" id="dct-scroll-btn" title="Toggle Scroll" onclick="toggleScroll('dct')">↔</button>
+                        </div>
+                        <div class="header-title">DNSCRYPT-PROXY (ms)</div>
+                        <div class="header-controls">
+                            <div id="dct-legend" class="external-legend-container"></div>
+                            <button class="btn-icon btn-reset" onclick="resetAll()" title="Reset Order">⟲</button>
+                            <button class="btn-icon btn-min" id="dct-expand-btn" onclick="toggleHeight('dct-chart-container', this)">&#8597;</button>
+                            <button class="btn-icon btn-move" onclick="moveUp('row-dct')">↑</button>
+                            <button class="btn-icon btn-move" onclick="moveDown('row-dct')">↓</button>
+                            <button class="btn-icon btn-min" id="dct-collapse-btn" onclick="toggleCollapse('dct-chart-content', this)">&#8722;</button>
+                        </div>
+                    </div>
+                    <div class="custom-range-inputs" id="dct-custom-inputs">
+                        <input type="datetime-local" class="date-input" id="dct-start"><span class="text-muted">-</span><input type="datetime-local" class="date-input" id="dct-end">
+                        <button class="btn-filter" style="border-color: var(--acc-green); color: var(--acc-green)" onclick="updateTimeFilter('dct', 'cust')">Go</button>
+                    </div>
+                    <div id="dct-chart-content" class="card-content-wrapper">
+                        <div class="chart-scroll-window" id="dct-scroll-window">
+                            <div class="chart-container-scrollable" id="dct-chart-container"><canvas id="dctChart"></canvas></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row card-row" id="row-dce" style="display:none;">
+            <div class="col-12">
+                <div class="card chart-card-padding border-acc-vibrant">
+                    <div class="card-header border-0 bg-transparent p-0 mb-3 d-flex justify-content-between align-items-center">
+                        <div class="header-controls">
+                            <button class="btn-filter f-dce f-12h active" onclick="updateTimeFilter('dce', '12h')">12H</button>
+                            <button class="btn-filter f-dce f-24h" onclick="updateTimeFilter('dce', '24h')">24H</button>
+                            <button class="btn-filter f-dce f-7d" onclick="updateTimeFilter('dce', '7d')">7D</button>
+                            <button class="btn-filter f-dce f-30d" onclick="updateTimeFilter('dce', '30d')">30D</button>
+                            <button class="btn-filter f-dce f-cust" onclick="updateTimeFilter('dce', 'cust')">Custom</button>
+                            <button class="btn-icon" id="dce-log-btn" title="Toggle Log Scale" onclick="toggleLog('dce')">㏒</button>
+                            <button class="btn-icon" id="dce-type-btn" title="Toggle Bar/Line" onclick="toggleChartType('dce')">📈</button>
+                            <button class="btn-icon" id="dce-scroll-btn" title="Toggle Scroll" onclick="toggleScroll('dce')">↔</button>
+                        </div>
+                        <div class="header-title">DNSCRYPT CACHE HITS</div>
+                        <div class="header-controls">
+                            <div id="dce-legend" class="external-legend-container"></div>
+                            <button class="btn-icon btn-reset" onclick="resetAll()" title="Reset Order">⟲</button>
+                            <button class="btn-icon btn-min" id="dce-expand-btn" onclick="toggleHeight('dce-chart-container', this)">&#8597;</button>
+                            <button class="btn-icon btn-move" onclick="moveUp('row-dce')">↑</button>
+                            <button class="btn-icon btn-move" onclick="moveDown('row-dce')">↓</button>
+                            <button class="btn-icon btn-min" id="dce-collapse-btn" onclick="toggleCollapse('dce-chart-content', this)">&#8722;</button>
+                        </div>
+                    </div>
+                    <div class="custom-range-inputs" id="dce-custom-inputs">
+                        <input type="datetime-local" class="date-input" id="dce-start"><span class="text-muted">-</span><input type="datetime-local" class="date-input" id="dce-end">
+                        <button class="btn-filter" style="border-color: var(--acc-green); color: var(--acc-green)" onclick="updateTimeFilter('dce', 'cust')">Go</button>
+                    </div>
+                    <div id="dce-chart-content" class="card-content-wrapper">
+                        <div class="chart-scroll-window" id="dce-scroll-window">
+                            <div class="chart-container-scrollable" id="dce-chart-container"><canvas id="dceChart"></canvas></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -976,7 +1092,7 @@
 // =========================================================
 // 1. CONSTANTS & CONFIGURATION
 // =========================================================
-const currentDashVersion = "v3.0.2";
+const currentDashVersion = "v3.0.0";
 const CHART_LINE_THICKNESS = 2.0;
 
 // Shorthand Selectors
@@ -1007,7 +1123,9 @@ const AppState = {
         up:      { log: false, type: 'bar', scroll: false, mode: '12h', instance: null, ctxId: 'upChart', legendId: 'up-legend', hiddenSets: [] },
         dist:    { log: false, type: 'bar', scroll: false, mode: '12h', instance: null, ctxId: 'latencyChart' },
         upDist:  { log: false, type: 'bar', scroll: false, mode: '12h', instance: null, ctxId: 'upDistChart' },
-        unbDist: { log: false, type: 'bar', scroll: false, mode: 'all', instance: null, ctxId: 'unboundDistChart' }
+        unbDist: { log: false, type: 'bar', scroll: false, mode: 'all', instance: null, ctxId: 'unboundDistChart' },
+        dct:     { log: false, type: 'bar',  scroll: false, mode: '12h', instance: null, ctxId: 'dctChart', legendId: 'dct-legend', hiddenSets: [] },
+        dce:     { log: false, type: 'bar', scroll: false, mode: '12h', instance: null, ctxId: 'dceChart', legendId: 'dce-legend', hiddenSets: [] }
     },
     order: []
 };
@@ -1108,12 +1226,12 @@ function saveState() {
 
     // Save UI State (Collapsed/Expanded)
     saveObj.ui = {};
-    ['sys','lat','unb','eff','mem','up','dist','unbDist', 'upDist'].forEach(key => {
+    ['sys','lat','unb','eff','mem','up','dist','unbDist', 'upDist','dc','dct','dce'].forEach(key => {
         let containerId, contentId;
         if(key === 'sys') {
             containerId = null; contentId = 'sys-card-content';
         } else {
-            const mapId = { lat: 'latency', unb: 'unbound', eff: 'efficiency', mem: 'memory', up: 'up', dist: 'dist', unbDist: 'unb-dist', upDist: 'up-dist' };
+            const mapId = { lat: 'latency', unb: 'unbound', eff: 'efficiency', mem: 'memory', up: 'up', dist: 'dist', unbDist: 'unb-dist', upDist: 'up-dist', dc: 'dc', dct: 'dct', dce: 'dce' };
             const domId = mapId[key] || key;
             containerId = (key === 'up' || key === 'dist' || key === 'unbDist' || key === 'upDist') ? mapId[key] + '-chart-container' : domId + '-chart-container';
             contentId = mapId[key] + '-chart-content';
@@ -1173,7 +1291,7 @@ function loadState() {
             if(targetKey === 'sys') {
                 contentId = 'sys-card-content'; btnCollapseId = 'sys-collapse-btn';
             } else {
-                const mapId = { lat: 'latency', unb: 'unbound', eff: 'efficiency', mem: 'memory', up: 'up', dist: 'dist', unbDist: 'unb-dist', upDist: 'up-dist' };
+                const mapId = { lat: 'latency', unb: 'unbound', eff: 'efficiency', mem: 'memory', up: 'up', dist: 'dist', unbDist: 'unb-dist', upDist: 'up-dist', dc: 'dc', dct: 'dct', dce: 'dce' };
                 const domId = mapId[targetKey] || targetKey;
                 containerId = (targetKey === 'up' || targetKey === 'dist' || targetKey === 'unbDist' || targetKey === 'upDist') ? mapId[targetKey] + '-chart-container' : domId + '-chart-container';
                 contentId = mapId[targetKey] + '-chart-content';
@@ -1374,7 +1492,8 @@ function upServerName(ui, p) {
     const s = (ui.servers || []).find(x => String(x.p) === String(p));
     if (!s) return 'server ' + p;
     const grouped = s.members && (s.members.length > 1 || (s.members.length === 1 && s.members[0] !== s.name));
-    return s.name + (grouped ? ' (' + s.members.join(', ') + ')' : '') + (s.unbound ? ' (Unbound)' : '') +
+    const local = s.local || (s.unbound ? 'Unbound' : '');   // local resolver on this machine (Unbound, dnscrypt-proxy)
+    return s.name + (grouped ? ' (' + s.members.join(', ') + ')' : '') + (local ? ' (' + local + ')' : '') +
            (s.configured || s.name === 'other' ? '' : ' (no longer set)');
 }
 // tiers + stats of the selected server (or all servers) for a time window
@@ -1390,7 +1509,9 @@ function renderUpstreamInfo(data, mode) {
     const ui = data.upstream_info, sel = upServer();
     const info = $('up-info-line'), wrap = $('up-compare-wrap'), selEl = $('upServerSel');
     if (!ui) { info.style.display = 'none'; wrap.style.display = 'none'; $('up-srv-row').style.display = 'none'; return; }
-    const servers = ui.by_server ? Object.keys(ui.by_server) : [];
+    // servers no longer set in Pi-hole are listed only for time ranges in which they answered
+    const isSet = p => { const x = (ui.servers || []).find(v => String(v.p) === String(p)); return !x || x.configured || x.name === 'other'; };
+    const servers = ui.by_server ? Object.keys(ui.by_server).filter(p => p === sel || isSet(p) || Number((ui.by_server[p][mode] || {}).count || 0) > 0) : [];
     // selector
     if (servers.length > 1) {
         const opts = ['<option value="all">All upstream servers</option>'].concat(servers.map(p => `<option value="${p}">${escHtml(upServerName(ui, p))}</option>`));
@@ -1401,11 +1522,14 @@ function renderUpstreamInfo(data, mode) {
     const parts = [];
     const selIsUnb = sel !== 'all' && (ui.servers || []).some(x => String(x.p) === sel && x.unbound);
     const hasUnb = (ui.servers || []).some(x => x.unbound);
+    // the local caching resolver(s) whose fast answers are kept apart: "Unbound", "dnscrypt-proxy" or both
+    const cacheNames = [...new Set((ui.servers || []).filter(x => x.unbound && (sel === 'all' || String(x.p) === sel)).map(x => x.local || 'Unbound'))];
+    const lr = cacheNames.length === 1 ? cacheNames[0] : 'The local resolvers';
     if (Number(ui.cutoff_ms) === 0 && hasUnb && (sel === 'all' || selIsUnb)) {
-        parts.push(`Unbound cache filter is off (0 ms): Unbound's cache answers are counted here as normal replies.`);
+        parts.push(`Cache filter is off (0 ms): ${lr === 'The local resolvers' ? 'the local resolvers\'' : lr + "'s"} cache answers are counted here as normal replies.`);
     } else if (ui.unbound_cache && ui.unbound_cache[mode] && ui.unbound_cache[mode].replies > 0 && (sel === 'all' || selIsUnb)) {
         const u = ui.unbound_cache[mode];
-        parts.push(`Unbound answered <b>${u.percent}%</b> of its replies from its own cache (under ${ui.cutoff_ms} ms): ${formatK(u.hits)} replies, not counted here.`);
+        parts.push(`${lr} answered <b>${u.percent}%</b> of ${cacheNames.length === 1 ? 'its' : 'their'} replies from ${cacheNames.length === 1 ? 'its' : 'their'} own cache (under ${ui.cutoff_ms} ms): ${formatK(u.hits)} replies, not counted here.`);
     }
     if (sel === 'all' && ui.excluded && ui.excluded.length) parts.push(`Not counted: conditional forwarding to ${ui.excluded.map(escHtml).join(', ')}.`);
     info.innerHTML = parts.join('<br>');
@@ -1544,7 +1668,9 @@ const CHART_DEFINITIONS = {
     unb: { fields: ['messages', 'rrsets'], labels: ['Msg', 'RRset'], colors: ['msg', 'rr'], mult: 1.2 },
     mem: { fields: ['cache_mb_msg', 'cache_mb_rr'], labels: ['Msg MB', 'RRset MB'], colors: ['mem_msg', 'mem_rr'], mult: 1.2 },
     eff: { fields: ['diff_hits', 'diff_miss'], labels: ['Hits', 'Misses'], colors: ['diff_hit', 'diff_miss'], mult: 1.1 },
-    up:  { fields: ['u_avg', 'u_med'], labels: ['Average', 'Median'], colors: ['up_avg', 'up_med'], mult: 1.2 }
+    up:  { fields: ['u_avg', 'u_med'], labels: ['Average', 'Median'], colors: ['up_avg', 'up_med'], mult: 1.2 },
+    dct: { fields: ['dc_avg', null], labels: ['Average response', ''], colors: ['up_avg', 'up_med'], mult: 1.2 },
+    dce: { fields: ['dc_hits', 'dc_miss'], labels: ['Hits', 'Misses'], colors: ['diff_hit', 'diff_miss'], mult: 1.1 }
 };
 
 /** Main function to render history charts */
@@ -1561,7 +1687,10 @@ function renderGenericHistory(key) {
     let upName = null;
     if (upSel !== 'all' && globalData && globalData.upstream_info) { const sv = (globalData.upstream_info.servers || []).find(x => String(x.p) === upSel); upName = sv ? sv.name : null; }
     const upVal = (d) => d.u_by ? (d.u_by[upName] || null) : null;   // history is keyed by server / provider name
-    const pick = (d, i) => (upSel === 'all') ? d[def.fields[i]] : (upVal(d) ? Number(upVal(d)[i]) : null);
+    const pick = (d, i) => {
+        if (upSel !== 'all') return upVal(d) ? Number(upVal(d)[i]) : null;
+        const f = def.fields[i]; return (f && d[f] !== undefined) ? d[f] : null;   // single-series charts have no 2nd field
+    };
     const dsA = data.map(d => pick(d, 0));
     const dsB = data.map(d => pick(d, 1));
     const colA = palette[def.colors[0]];
@@ -1611,7 +1740,7 @@ function renderGenericHistory(key) {
             legend: { display: false, labels: { generateLabels: (chart) => [
                 { text: def.labels[0], fillStyle: colA, hidden: !chart.isDatasetVisible(0) && !chart.isDatasetVisible(2), datasetIndex: 0 },
                 { text: def.labels[1], fillStyle: colB, hidden: !chart.isDatasetVisible(1) && !chart.isDatasetVisible(3), datasetIndex: 1 }
-            ]}},
+            ].filter(it => it.text)}},
             htmlLegendSplit: { containerID: cfg.legendId, chartKey: key },
             tooltip: {
                 enabled: true, backgroundColor: 'rgba(0,0,0,0.8)', filter: (item) => item.raw !== null,
@@ -1619,11 +1748,12 @@ function renderGenericHistory(key) {
                     let label = (context.dataset.label || '') + ': ';
                     if (context.parsed.y !== null) {
                         if (key === 'unb') label += context.parsed.y; 
+                        else if (key === 'dct') label += Number(context.parsed.y).toFixed(2) + ' ms';
                         else label += formatK(context.parsed.y);
                     }
-                    if (key === 'eff') {
+                    if (key === 'eff' || key === 'dce') {
                         const d = data[context.dataIndex]; 
-                        const total = (d.diff_hits || 0) + (d.diff_miss || 0);
+                        const total = key === 'eff' ? (d.diff_hits || 0) + (d.diff_miss || 0) : (d.dc_hits || 0) + (d.dc_miss || 0);
                         if(total > 0) label += ` (${((context.parsed.y / total) * 100).toFixed(1)}%)`;
                     }
                     return label;
@@ -2003,7 +2133,7 @@ function applyTheme(theme) {
         renderUnboundDistChart(globalData); 
     }
     if (fullHistoryData.length) { 
-        ['lat','unb','eff','mem','up'].forEach(k => renderGenericHistory(k)); 
+        ['lat','unb','eff','mem','up','dct','dce'].forEach(k => renderGenericHistory(k)); 
     }
 }
 
@@ -2139,6 +2269,7 @@ async function fetchData() {
             }
             if(u.cache_count) { setTxt('ucc_msg', u.cache_count.messages); setTxt('ucc_rr', u.cache_count.rrsets); }
         }
+        renderDnscrypt(data);
 
         if (isNew) {
             renderSnapshotCharts(data);
@@ -2152,7 +2283,7 @@ async function fetchData() {
                 let h = [];
                 try { h = JSON.parse(await hResp.text()); } catch (e) { console.warn('History file could not be read:', e); }
                 fullHistoryData = Array.isArray(h) ? h.filter(d => d && typeof d.date === 'string') : [];   // skip damaged entries
-                ['lat','unb','eff','mem','up'].forEach(k => renderGenericHistory(k));
+                ['lat','unb','eff','mem','up','dct','dce'].forEach(k => renderGenericHistory(k));
                 isFirstLoad = false;
                 lastSnapshotDate = data.date;
             }
@@ -2187,8 +2318,85 @@ setInterval(() => {
 }, 1000);
 
 // Unbound not installed / not used / off: say so instead of empty fields
+// ---------- dnscrypt-proxy (an alternative local resolver to Unbound) ----------
+function fmtUptime(sec) {
+    sec = Number(sec) || 0;
+    const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60);
+    return d ? `${d}d ${h}h` : (h ? `${h}h ${m}m` : `${m}m`);
+}
+function renderDnscrypt(data) {
+    const dc = data.dnscrypt, st = data.dnscrypt_state || 'not_installed';
+    // its card shows when Pi-hole uses dnscrypt-proxy: with its stats, or with why they can't be read
+    const why = {
+        monitor_off: "dnscrypt-proxy's monitoring UI is off, so its stats can't be read. Turn it on in dnscrypt-proxy.toml: [monitoring_ui] enabled = true. Any listen_address works, and a username and password are fine: PHLS reads them from the file.",
+        auth_failed: "dnscrypt-proxy's monitoring UI refused the username / password from dnscrypt-proxy.toml ([monitoring_ui]).",
+        too_old: `dnscrypt-proxy ${data.dnscrypt_version || ''} is too old for stats: its monitoring UI needs version 2.1.10 or newer. Don't add a [monitoring_ui] section to this version: it won't start with one. Debian 13 ships 2.1.8; the official release from github.com/DNSCrypt/dnscrypt-proxy is newer.`,
+        not_running: "Pi-hole uses dnscrypt-proxy, but it isn't running. Check: sudo systemctl status dnscrypt-proxy (and sudo journalctl -u dnscrypt-proxy for the reason).",
+        error: "dnscrypt-proxy's monitoring UI didn't answer. Check that dnscrypt-proxy is running and that [monitoring_ui] listen_address can be reached from this machine."
+    };
+    $('dc-since').style.display = dc ? '' : 'none';
+    $('row-dct').style.display = dc ? 'flex' : 'none';
+    $('row-dce').style.display = (dc && dc.cache_enabled) ? 'flex' : 'none';
+    const msg = $('dc-msg');
+    if (!dc) {
+        $('dc-grid').style.display = 'none'; $('dc-res-table').innerHTML = '';
+        msg.innerText = why[st] || ''; msg.style.display = why[st] ? '' : 'none';
+    } else {
+        $('dc-grid').style.display = ''; msg.style.display = 'none';
+        setTxt('dcg_avg', Number(dc.dc_avg_ms).toFixed(2) + ' ms');
+        setTxt('dcg_qps', Number(dc.qps).toFixed(2));
+        setTxt('dcg_hit', dc.cache_enabled ? Number(dc.ratio).toFixed(1) + '%' : 'cache off');
+        setTxt('dcg_up', fmtUptime(dc.uptime));
+        const stCol = x => x === 'healthy' ? 'var(--acc-green)' : (x === 'idle' ? 'var(--text-muted)' : 'var(--acc-red)');
+        let h = '<table class="up-compare"><thead><tr><th>Resolver</th><th>Protocol</th><th>Average</th><th>Success</th><th>Status</th><th>Queries</th><th>Failed</th></tr></thead><tbody>';
+        (dc.resolvers || []).forEach(r => {
+            h += `<tr><td>${escHtml(r.name)}</td><td>${escHtml(r.proto)}</td><td>${r.avg_ms === null ? '--' : Number(r.avg_ms).toFixed(2) + ' ms'}</td>` +
+                 `<td>${Number(r.success).toFixed(1)}%</td><td style="color:${stCol(r.status)}">${escHtml(r.status)}</td><td>${formatK(r.queries)}</td><td>${formatK(r.failed)}</td></tr>`;
+        });
+        $('dc-res-table').innerHTML = h + '</tbody></table>';
+    }
+    // overview: dnscrypt-proxy takes Unbound's place when it is the one in use (or answers more queries)
+    const u = data.unbound;
+    // dnscrypt-proxy is in use but its stats can't be read, and Unbound isn't the one in use: show why there
+    const dcWhy = !dc && !!why[st] && !u && ['not_installed', 'not_used', 'disabled'].includes(data.unbound_state || 'not_installed');
+    const useDc = dcWhy || (!!dc && (!u || Number(dc.dc_queries) > Number(u.total_hits) + Number(u.total_miss)));
+    // the reason shows in one place: the overview when it has room, the card otherwise
+    $('row-dc').style.display = (dc || (why[st] && !dcWhy)) ? 'flex' : 'none';
+    $('dc-col').style.display = useDc ? '' : 'none'; $('u-col').style.display = useDc ? 'none' : '';
+    $('dc-footer').style.display = (useDc && !dcWhy) ? '' : 'none'; $('u-footer').style.display = useDc ? 'none' : '';
+    const dcHead = document.querySelector('#dc-col .internal-header');
+    let dcMsg = $('dc-col-msg');
+    if (!dcMsg) { dcMsg = document.createElement('div'); dcMsg.id = 'dc-col-msg'; dcMsg.className = 'set-note'; dcMsg.style.padding = '10px 4px'; dcHead.after(dcMsg); }
+    [...$('dc-col').children].forEach(el => { if (el !== dcHead && el !== dcMsg) el.style.display = dcWhy ? 'none' : ''; });
+    dcMsg.innerText = dcWhy ? why[st] : ''; dcMsg.style.display = dcWhy ? '' : 'none';
+    if (!useDc) return;
+    const badg = $('u_status_badge');
+    if (dcWhy) {
+        badg.innerText = 'dnscrypt-proxy: ' + ({ monitor_off: 'Monitoring off', auth_failed: 'Login refused', error: 'Error', too_old: 'Too old', not_running: 'Not running' })[st];
+        badg.className = 'badge ' + (st === 'monitor_off' || st === 'too_old' ? 'bg-secondary' : 'bg-danger') + ' me-2';
+        return;
+    }
+    setTxt('dc_total', dc.dc_queries); setTxt('dc_qps', `(${Number(dc.qps).toFixed(2)}/s)`);
+    setTxt('dc_avg', Number(dc.dc_avg_ms).toFixed(2) + ' ms');
+    if (dc.cache_enabled) {
+        setTxt('dc_hits', dc.dc_hits); setTxt('dc_hit_pct', `(${Number(dc.ratio).toFixed(2)}%)`);
+        setTxt('dc_miss', dc.dc_miss); setTxt('dc_miss_pct', `(${(100 - Number(dc.ratio)).toFixed(2)}%)`);
+        setTxt('dc_cache_txt', `${dc.entries} of ${dc.capacity} entries`);
+    } else {
+        setTxt('dc_hits', 'cache off'); setTxt('dc_hit_pct', ''); setTxt('dc_miss', '--'); setTxt('dc_miss_pct', '');
+        setTxt('dc_cache_txt', 'off');
+    }
+    const rs = dc.resolvers || [], okN = rs.filter(r => r.status === 'healthy').length;
+    setTxt('dc_res_sum', rs.length ? `${okN} / ${rs.length}` : '--');
+    setTxt('dc_res_sub', rs.length ? '(healthy)' : '');
+    setTxt('dc_up', fmtUptime(dc.uptime));
+    const blk = Number(dc.blocked || 0);
+    $('dc_blk_row').style.display = blk > 0 ? '' : 'none'; setTxt('dc_blk', blk);
+    badg.innerText = 'dnscrypt-proxy: Active'; badg.className = 'badge bg-success me-2';
+}
+
 function renderUnboundState(data) {
-    const head = document.querySelector('.internal-header.text-unbound');
+    const head = document.querySelector('#u-col .internal-header');
     if (!head) return;
     const col = head.parentElement, u = data.unbound;
     let msg = $('u-col-msg');
@@ -2200,7 +2408,7 @@ function renderUnboundState(data) {
         not_installed: ['Not installed', 'Unbound is not installed on this machine. Its stats appear here when Pi-hole uses a local Unbound.'],
         not_used:      ['Not used', "Unbound is installed, but Pi-hole doesn't use it as an upstream server, so its stats are not shown."],
         not_running:   ['Not running', 'Unbound is installed but not running.'],
-        disabled:      ['Off', 'Unbound stats are turned off (setting "Unbound stats").'],
+        disabled:      ['Off', 'Unbound stats are turned off (setting "Local resolver stats").'],
         error:         ['Error', "Unbound didn't answer (check permissions for unbound-control)."],
         filtered:      ['Not shown', "Unbound's own counters cover all domains, so they are not shown on a profile filtered by domain. The Upstream card below follows the filter."]
     };

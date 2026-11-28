@@ -22,7 +22,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 # ==============================================================================
 
-VERSION="v5.0.2"
+VERSION="v5.0.0"
 UPSTREAM_DIST_MIN_CUTOFF="4"  # Minimum latency (ms) for the Upstream Graph
 UPDATE_MSG=""
 
@@ -241,6 +241,90 @@ unbound_used() {
     done < <(toml_dns_list upstreams)
     return 1
 }
+# --- dnscrypt-proxy: the other common local resolver next to Pi-hole ---
+# Its config file is found through its service (-config <file>, relative to WorkingDirectory),
+# else the usual place. PHLS_DNSCRYPT_TOML overrides it (tests).
+dc_conf() {
+    if [ -n "$PHLS_DNSCRYPT_TOML" ]; then [ -r "$PHLS_DNSCRYPT_TOML" ] && printf '%s' "$PHLS_DNSCRYPT_TOML"; return 0; fi
+    local p wd
+    p=$(systemctl show -p ExecStart dnscrypt-proxy.service 2>/dev/null | tr -d "\"'" | grep -o -- '-\{1,2\}config[= ][^ ;]*' | head -n 1 | sed 's/^-*config[= ]//')
+    if [ -n "$p" ] && [ "${p#/}" = "$p" ]; then
+        wd=$(systemctl show -p WorkingDirectory --value dnscrypt-proxy.service 2>/dev/null); p="${wd:-/}/$p"
+    fi
+    [ -n "$p" ] || p=/etc/dnscrypt-proxy/dnscrypt-proxy.toml
+    [ -r "$p" ] && printf '%s' "$p"
+    return 0
+}
+# dc_version -> "2.1.21" (empty if unknown)
+dc_version() {
+    local b
+    b="${PHLS_DNSCRYPT_BIN:-}"
+    [ -n "$b" ] || b=$(systemctl show -p ExecStart dnscrypt-proxy.service 2>/dev/null | grep -o 'path=[^ ;]*' | head -n 1 | cut -d= -f2)
+    [ -n "$b" ] && [ -x "$b" ] || b=$(command -v dnscrypt-proxy 2>/dev/null)
+    [ -n "$b" ] || for b in /usr/sbin/dnscrypt-proxy /usr/bin/dnscrypt-proxy /opt/dnscrypt-proxy/dnscrypt-proxy ""; do [ -x "$b" ] && break; done
+    [ -n "$b" ] || return 0
+    timeout 3 "$b" -version 2>/dev/null | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+' | head -n 1
+}
+# dc_old_version -> the version if it is older than 2.1.10 (no monitoring UI; it stops on a [monitoring_ui] section)
+dc_old_version() {
+    local v; v=$(dc_version)
+    [ -n "$v" ] && [ "$(printf '%s\n2.1.10\n' "$v" | sort -V | head -n 1)" != 2.1.10 ] && printf '%s' "$v"
+    return 0
+}
+dc_installed() {
+    [ -n "$PHLS_DNSCRYPT_TOML" ] || command -v dnscrypt-proxy >/dev/null 2>&1 || [ -x /usr/sbin/dnscrypt-proxy ] || [ -x /opt/dnscrypt-proxy/dnscrypt-proxy ] \
+        || systemctl cat dnscrypt-proxy.service >/dev/null 2>&1
+}
+# dc_read <config> -> "key<TAB>value" lines: ports, cache, mon_enabled, mon_addr, mon_user, mon_pass
+dc_read() {
+    awk '
+        function val(x,   q, e) {
+            sub(/^[^=]*=[[:space:]]*/, "", x); q = substr(x, 1, 1)
+            if (q == "\"" || q == "\047") { x = substr(x, 2); e = index(x, q); return (e ? substr(x, 1, e - 1) : x) }
+            sub(/[[:space:]]*#.*$/, "", x); sub(/[[:space:]]+$/, "", x); return x
+        }
+        function ports(x,   m) {   # every quoted "address:port" -> its port
+            while (match(x, /["\047][^"\047]*:[0-9]+["\047]/)) {
+                m = substr(x, RSTART + 1, RLENGTH - 2); sub(/.*:/, "", m); P = P " " m; x = substr(x, RSTART + RLENGTH)
+            }
+        }
+        inarr { ports($0); if ($0 ~ /\]/) inarr = 0; next }
+        /^[[:space:]]*#/ { next }
+        /^[[:space:]]*\[[^]]*\][[:space:]]*(#.*)?$/ { sec = $0; sub(/#.*/, "", sec); gsub(/[][[:space:]]/, "", sec); next }
+        sec == "" && /^[[:space:]]*listen_addresses[[:space:]]*=/ { x = $0; sub(/^[^=]*=/, "", x); ports(x); if (x !~ /\]/) inarr = 1; next }
+        sec == "" && /^[[:space:]]*cache[[:space:]]*=/ { print "cache\t" val($0); next }
+        sec == "monitoring_ui" && /^[[:space:]]*enabled[[:space:]]*=/ { print "mon_enabled\t" val($0); next }
+        sec == "monitoring_ui" && /^[[:space:]]*listen_address[[:space:]]*=/ { print "mon_addr\t" val($0); next }
+        sec == "monitoring_ui" && /^[[:space:]]*username[[:space:]]*=/ { print "mon_user\t" val($0); next }
+        sec == "monitoring_ui" && /^[[:space:]]*password[[:space:]]*=/ { print "mon_pass\t" val($0); next }
+        END { print "ports\t" P }
+    ' "$1" 2>/dev/null
+}
+# " 5053 " ports dnscrypt-proxy answers DNS on (config + systemd socket activation, e.g. Debian's 127.0.2.1:53)
+dc_ports() {
+    local f k v p=" "
+    f=$(dc_conf)
+    [ -n "$f" ] && while IFS=$'\t' read -r k v; do [ "$k" = ports ] && p+="$v "; done < <(dc_read "$f")
+    [ -n "$PHLS_DNSCRYPT_TOML" ] || p+="$(systemctl show -p Listen --value dnscrypt-proxy.socket 2>/dev/null | grep -o ':[0-9]\+ ' | tr -d ': ' | tr '\n' ' ')"
+    p=$(printf '%s\n' $p | grep -x '[0-9]\+' | sort -un | tr '\n' ' ')
+    printf ' %s' "$p"; [ -n "$p" ] || printf ' '
+
+}
+dc_cache_on() {   # dnscrypt-proxy caches answers unless "cache = false"
+    local f k v; f=$(dc_conf); [ -n "$f" ] || return 0
+    while IFS=$'\t' read -r k v; do [ "$k" = cache ] && [ "$v" = false ] && return 1; done < <(dc_read "$f")
+    return 0
+}
+dc_used() {
+    [ -r "$PHLS_PIHOLE_TOML" ] || return 1
+    local ports u n; ports=$(dc_ports); [[ "$ports" =~ [0-9] ]] || return 1
+    while IFS= read -r u; do
+        [ -n "$u" ] || continue; n=$(norm_fwd "$u")
+        is_loopback "$n" && [[ "$ports" == *" ${n##*#} "* ]] && return 0
+    done < <(toml_dns_list upstreams)
+    return 1
+}
+
 # Public DNS provider of a server address ("1.1.1.1#53" -> Cloudflare), empty if not a known one
 dns_provider() {
     local h="${1%#*}"; h="${h,,}"
@@ -263,7 +347,7 @@ is_loopback() { local h="${1%#*}"; [[ "$h" == 127.* || "$h" == "::1" || "$h" == 
 #   class 0 = upstream, 1 = Unbound on this machine, 2 = not an upstream (conditional forwarding target),
 #   p = which upstream (1..14, 15 = other). Code 7 (p 1, class 3) = unknown: the cutoff applies, as before v5.
 discover_upstreams() {
-    local db="$1" mode="$2" l id name nn c
+    local db="$1" mode="$2" l id name nn c lb
     NP=1; FC_CASE="7"; UPS_JSON="[]"; UPS_EXCL="[]"; UNB_P=" "; HAS_FWD=false; PNAMES=""
     [ "$(printf '.timeout 30000\nSELECT COUNT(*) FROM sqlite_master WHERE type = %s AND name IN (%s, %s);\n' "'table'" "'query_storage'" "'forward_by_id'" | sqlite3 "$db" 2>/dev/null)" = "2" ] || return 0
     local fw=(); mapfile -t fw < <(printf '.timeout 30000\nSELECT id, forward FROM forward_by_id ORDER BY id;\n' | sqlite3 "$db" 2>/dev/null)
@@ -272,18 +356,21 @@ discover_upstreams() {
     while IFS= read -r x; do [ -n "$x" ] && ups+=("$(norm_fwd "$x")"); done < <(toml_dns_list upstreams)
     while IFS= read -r x; do x=$(cut -d, -f3 <<< "$x"); [ -n "$x" ] && revs+=("$(norm_fwd "$x")"); done < <(toml_dns_list revServers)
     # Unbound: installed, and the port(s) it listens on (Pi-hole's guide uses 5335)
-    local ub=false uports=" "
+    local ub=false uports=" " dc=false dports=" " dcache=false
     if unbound_installed; then ub=true; uports=$(unbound_ports); fi
+    if dc_installed; then dports=$(dc_ports); [[ "$dports" =~ [0-9] ]] && dc=true; dc_cache_on && dcache=true; fi
     in_list() { local a="$1" b; shift; for b in "$@"; do [ "$a" = "$b" ] && return 0; done; return 1; }
     # classify every forward destination
-    local ids=() names=() cls=() conf=()
+    local ids=() names=() cls=() conf=() labs=()
     for l in "${fw[@]}"; do
         id="${l%%|*}"; name="${l#*|}"; [[ "$id" =~ ^[0-9]+$ ]] || continue
         [[ "$name" == *[\"\'\\]* ]] && continue
-        nn=$(norm_fwd "$name"); c=0
+        nn=$(norm_fwd "$name"); c=0; lb=""
         if [ ${#revs[@]} -gt 0 ] && in_list "$nn" "${revs[@]}" && ! { [ ${#ups[@]} -gt 0 ] && in_list "$nn" "${ups[@]}"; }; then c=2
-        elif [ "$ub" = true ] && is_loopback "$nn" && { [ "$uports" = " any " ] || [[ "$uports" == *" ${nn##*#} "* ]]; }; then c=1; fi
-        ids+=("$id"); names+=("$name"); cls+=("$c")
+        elif [ "$dc" = true ] && is_loopback "$nn" && [[ "$dports" == *" ${nn##*#} "* ]]; then
+            lb="dnscrypt-proxy"; [ "$dcache" = true ] && c=1   # its cache answers are kept apart only if it caches
+        elif [ "$ub" = true ] && is_loopback "$nn" && { [ "$uports" = " any " ] || [[ "$uports" == *" ${nn##*#} "* ]]; }; then c=1; lb="Unbound"; fi
+        ids+=("$id"); names+=("$name"); cls+=("$c"); labs+=("$lb")
         if [ ${#ups[@]} -gt 0 ] && in_list "$nn" "${ups[@]}"; then conf+=(1); else conf+=(0); fi
     done
     # group of each server: the server itself, or its provider when UPSTREAM_BY_PROVIDER is on
@@ -315,12 +402,14 @@ discover_upstreams() {
     # one entry per upstream (group): name, member servers
     for g in "${gorder[@]}"; do
         [ "${GP[$g]}" -le 14 ] || continue
-        local mem="" unb=false cf=false
+        local mem="" unb=false cf=false loc=""
         for i in "${!ids[@]}"; do
             [ "${cls[$i]}" != 2 ] && [ "${G[$i]}" = "$g" ] || continue
             mem+="${mem:+,}\"${names[$i]}\""; [ "${cls[$i]}" = 1 ] && unb=true; [ "${conf[$i]}" = 1 ] && cf=true
+            [ -n "${labs[$i]}" ] && loc="${labs[$i]}"
         done
-        js+="${js:+,}{\"p\":${GP[$g]},\"name\":\"$g\",\"members\":[$mem],\"unbound\":$unb,\"configured\":$cf}"
+        # "unbound": a local caching resolver whose fast (cache) answers are kept apart; "local": which one
+        js+="${js:+,}{\"p\":${GP[$g]},\"name\":\"$g\",\"members\":[$mem],\"unbound\":$unb,\"local\":\"$loc\",\"configured\":$cf}"
         PNAMES+="${GP[$g]}=$g"$'\t'
     done
     [ "$NP" -gt 14 ] && { js+=",{\"p\":15,\"name\":\"other\",\"members\":[],\"unbound\":false,\"configured\":false}"; PNAMES+="15=other"$'\t'; }
@@ -631,7 +720,7 @@ show_help() {
     echo "  -clear             : Clear dashboard history (and cache) for selected profile"
     echo ""
     echo "--- EXTRAS ---"
-    echo "  -unb, -no-unb      : Force Enable/Disable Unbound stats"
+    echo "  -unb, -no-unb      : Force Enable/Disable Unbound / dnscrypt-proxy stats"
     echo "  -ucc               : Include Unbound Cache Count (msg/rrset)"
     echo "  -snap              : (Deprecated, no effect) Data is always read once into RAM"
     echo "  -hor, -ver         : Force Horizontal or Vertical layout"
@@ -1012,6 +1101,116 @@ collect_unbound_async() {
             }
             return bounds[9]
         }' > "$TMP_OUT"
+}
+
+# Worker: dnscrypt-proxy (runs in background like Unbound's). Reads its monitoring API (/api/metrics).
+# state: not_installed | disabled | not_running | not_used | monitor_off | auth_failed | error | active | filtered
+collect_dnscrypt_async() {
+    local out="$WORK_DIR/dnscrypt.vars" res="$WORK_DIR/dnscrypt.res" state="not_installed"
+    printf 'DC_STATE="%s"\n' "$state" > "$out"
+    dc_installed || return 0
+    if [ -n "$SQL_DOMAIN_CLAUSE" ]; then state="filtered"
+    elif [ "$SHOW_UNBOUND" = "no" ] || { [ "$SHOW_UNBOUND" = "default" ] && [ "$ENABLE_UNBOUND" = "false" ]; }; then state="disabled"
+    elif [ -n "${DC_OLD_VER:=$(dc_old_version)}" ]; then state="too_old"
+    elif [ -z "$PHLS_DNSCRYPT_TOML" ] && ! systemctl is-active --quiet dnscrypt-proxy 2>/dev/null && ! pgrep -x dnscrypt-proxy >/dev/null; then
+        # stopped: worth saying only if Pi-hole uses it (or stats are forced on)
+        if [ "$SHOW_UNBOUND" = "default" ] && [ "$ENABLE_UNBOUND" = "auto" ] && ! dc_used; then state="not_used"; else state="not_running"; fi
+    elif [ "$SHOW_UNBOUND" = "default" ] && [ "$ENABLE_UNBOUND" = "auto" ] && ! dc_used; then state="not_used"
+    else state="active"; fi
+    if [ "$state" = too_old ]; then printf 'DC_STATE="too_old"; DC_VER="%s"\n' "$DC_OLD_VER" > "$out"; return 0; fi
+    if [ "$state" != active ]; then printf 'DC_STATE="%s"\n' "$state" > "$out"; return 0; fi
+
+    local f k v en="" addr="" user="" pass=""
+    f=$(dc_conf)
+    [ -n "$f" ] && while IFS=$'\t' read -r k v; do
+        case "$k" in mon_enabled) en="$v" ;; mon_addr) addr="$v" ;; mon_user) user="$v" ;; mon_pass) pass="$v" ;; esac
+    done < <(dc_read "$f")
+    if [ "$en" != true ] || [ -z "$addr" ]; then printf 'DC_STATE="monitor_off"\n' > "$out"; return 0; fi
+    # 0.0.0.0:8081 / :8081 / [::]:8081 -> ask on this machine
+    local host="${addr%:*}" port="${addr##*:}"
+    case "$host" in ""|0.0.0.0|"*") host=127.0.0.1 ;; "[::]") host="[::1]" ;; esac
+    [[ "$port" =~ ^[0-9]+$ ]] || { printf 'DC_STATE="monitor_off"\n' > "$out"; return 0; }
+    local body="$WORK_DIR/dnscrypt.json" code auth=()
+    [ -n "$user" ] && auth=(-u "$user:$pass")
+    code=$(curl -s -o "$body" -w '%{http_code}' --connect-timeout 3 --max-time 8 "${auth[@]}" "http://$host:$port/api/metrics" 2>/dev/null)
+    case "$code" in
+        200) ;;
+        401|403) printf 'DC_STATE="auth_failed"\n' > "$out"; return 0 ;;
+        *) printf 'DC_STATE="error"\n' > "$out"; return 0 ;;
+    esac
+    # JSON -> "path<TAB>value" (top domains and the query log are skipped: not needed, and private)
+    awk 'BEGIN { RS = "\001" }
+        function ws() { while (i <= n && index(" \t\r\n", substr(s, i, 1))) i++ }
+        function str(   o, c) {
+            i++; o = ""
+            while (i <= n) {
+                c = substr(s, i, 1)
+                if (c == "\\") { o = o substr(s, i + 1, 1); i += 2; continue }
+                if (c == "\"") { i++; return o }
+                o = o c; i++
+            }
+            return o
+        }
+        function emit(p, x) { if (p !~ /^(top_domains|recent_queries)/) print p "\t" x }
+        function val(p,   c, k, idx, st) {
+            ws(); if (i > n) return
+            c = substr(s, i, 1)
+            if (c == "{") {
+                i++; ws(); if (substr(s, i, 1) == "}") { i++; return }
+                while (i <= n) {
+                    ws(); if (substr(s, i, 1) != "\"") return
+                    k = str(); ws(); i++
+                    val(p == "" ? k : p "." k); ws()
+                    c = substr(s, i, 1); i++; if (c != ",") return
+                }
+                return
+            }
+            if (c == "[") {
+                i++; idx = 0; ws(); if (substr(s, i, 1) == "]") { i++; return }
+                while (i <= n) {
+                    val(p "." idx); idx++; ws()
+                    c = substr(s, i, 1); i++; if (c != ",") return
+                }
+                return
+            }
+            if (c == "\"") { emit(p, str()); return }
+            st = i; while (i <= n && !index(",}] \t\r\n", substr(s, i, 1))) i++
+            if (i == st) { i++; return }
+            emit(p, substr(s, st, i - st))
+        }
+        { s = $0; n = length(s); i = 1; val("") }' "$body" 2>/dev/null | awk -F'\t' -v res="$res" '
+        function num(x) { return (x ~ /^-?[0-9.eE+]+$/) ? x + 0 : 0 }
+        function clean(x) { gsub(/[^A-Za-z0-9._:@\/ -]/, "", x); return substr(x, 1, 64) }
+        { v[$1] = $2 }
+        END {
+            if (!("total_queries" in v)) { print "DC_STATE=\"error\""; exit }
+            h = num(v["cache_hits"]); m = num(v["cache_misses"])
+            ce = (v["cache_stats.enabled"] == "false") ? "false" : "true"
+            printf "DC_STATE=\"active\"; DC_TOTAL=\"%.0f\"; DC_QPS=\"%.2f\"; DC_UPTIME=\"%.0f\"; DC_AVG=\"%.2f\"\n", num(v["total_queries"]), num(v["queries_per_second"]), num(v["uptime_seconds"]), num(v["avg_response_time"])
+            printf "DC_BLOCKED=\"%.0f\"\n", num(v["blocked_queries"])
+            printf "DC_HITS=\"%.0f\"; DC_MISS=\"%.0f\"; DC_RATIO=\"%.2f\"; DC_CACHE=\"%s\"; DC_ENTRIES=\"%.0f\"; DC_CAP=\"%.0f\"\n", h, m, (h + m > 0 ? h * 100 / (h + m) : 0), ce, num(v["cache_stats.entries"]), (num(v["cache_stats.capacity"]) > 0 ? num(v["cache_stats.capacity"]) : num(v["cache_stats.configured_size"]))
+            js = ""
+            for (k = 0; ("resolver_health." k ".name") in v; k++) {
+                b = "resolver_health." k "."
+                avg = ((b "avg_response_ms") in v) ? sprintf("%.2f", num(v[b "avg_response_ms"])) : "null"
+                js = js (k ? "," : "") sprintf("{\"name\":\"%s\",\"proto\":\"%s\",\"avg_ms\":%s,\"success\":%.1f,\"status\":\"%s\",\"queries\":%.0f,\"failed\":%.0f}", \
+                    clean(v[b "name"]), clean(v[b "proto"]), avg, num(v[b "success_rate"]) * 100, clean(v[b "status"]), num(v[b "total_queries"]), num(v[b "failed_queries"]))
+            }
+            printf "[%s]", js > res
+        }' > "$out"
+    rm -f "$body"
+    [ -s "$out" ] || printf 'DC_STATE="error"\n' > "$out"
+}
+load_dnscrypt_results() {
+    [ -n "$PID_DC" ] && wait "$PID_DC" 2>/dev/null
+    DC_STATE="not_installed"; DC_TOTAL=0; DC_QPS=0; DC_UPTIME=0; DC_AVG=0; DC_HITS=0; DC_MISS=0; DC_RATIO=0; DC_CACHE=false; DC_ENTRIES=0; DC_CAP=0; DC_RES="[]"; DC_VER=""; DC_BLOCKED=0
+    if [ -f "$WORK_DIR/dnscrypt.vars" ]; then
+        # only numbers and fixed words, written by collect_dnscrypt_async
+        source "$WORK_DIR/dnscrypt.vars"; rm -f "$WORK_DIR/dnscrypt.vars"
+    fi
+    [ -s "$WORK_DIR/dnscrypt.res" ] && { DC_RES=$(< "$WORK_DIR/dnscrypt.res"); rm -f "$WORK_DIR/dnscrypt.res"; }
+    HAS_DC=false; [ "$DC_STATE" = active ] && HAS_DC=true
+    return 0
 }
 
 # Loads Unbound results and pre-computes all derived values in a single awk call
@@ -1899,14 +2098,20 @@ print_text_report() {
         TITLE="Pi-hole Latency Stats $VERSION"; PAD=$(( (100 - ${#TITLE}) / 2 )); printf "%${PAD}s%s\n" "" "$TITLE"
         echo "===================================================================================================="
         DATE_STR="Analysis Date : $CURRENT_DATE"; PAD_DATE=$(( (100 - ${#DATE_STR}) / 2 )); printf "%${PAD_DATE}s%s\n" "" "$DATE_STR"
-        echo "---------------- Pi-hole Performance ----------------||---------- Unbound DNS Performance ----------"
+        local DC_COL=false RH="---------- Unbound DNS Performance ----------" RD="------- Unbound Response Distribution -------"
+        if [ "$HAS_UNBOUND" != true ] && [ "$HAS_DC" = true ]; then
+            DC_COL=true; RH="-------------- dnscrypt-proxy ---------------"; RD="---------------------------------------------"
+            mapfile -t R_LINES < <(dnscrypt_lines short); DR_LINES=()
+        fi
+        echo "---------------- Pi-hole Performance ----------------||$RH"
         MAX=${#L_LINES[@]}; [ ${#R_LINES[@]} -gt $MAX ] && MAX=${#R_LINES[@]}
         for ((i=0; i<MAX; i++)); do printf "%-53s||%s\n" "${L_LINES[$i]}" "${R_LINES[$i]}"; done
         if [ "$SHOW_UNBOUND" != "only" ]; then
-            echo "----------- Pi-hole Latency Distribution ------------||------- Unbound Response Distribution -------"
+            echo "----------- Pi-hole Latency Distribution ------------||$RD"
             MAX_D=${#DL_LINES[@]}; [ ${#DR_LINES[@]} -gt $MAX_D ] && MAX_D=${#DR_LINES[@]}
             for ((i=0; i<MAX_D; i++)); do printf "%-53s||%s\n" "${DL_LINES[$i]}" "${DR_LINES[$i]}"; done
         fi
+        [ "$DC_COL" = true ] || print_dnscrypt_text
         echo "===================================================================================================="
     else
         echo "========================================================"
@@ -1927,8 +2132,53 @@ print_text_report() {
             if [ "$SHOW_UNBOUND" != "only" ]; then echo ""; fi
             echo "--- Unbound Response Time Distribution ---"; for line in "${DR_LINES[@]}"; do echo "$line"; done
         fi
+        print_dnscrypt_text
         echo "========================================================"
     fi
+}
+
+# dnscrypt-proxy section of the text report (its own counters, since it started)
+print_dnscrypt_text() {
+    if [ "$DC_STATE" = too_old ]; then
+        echo "--------------- dnscrypt-proxy ---------------"
+        echo "dnscrypt-proxy $DC_VER is too old for stats (needs 2.1.10 or newer)."
+        return 0
+    fi
+    [ "$HAS_DC" = true ] || return 0
+    echo "--------------- dnscrypt-proxy ---------------"
+    dnscrypt_lines long
+}
+
+dnscrypt_lines() {
+    [ "$HAS_DC" = true ] || return 0
+    local up="$(( DC_UPTIME / 3600 ))h $(( DC_UPTIME % 3600 / 60 ))m"
+    if [ "$1" = short ]; then
+        echo "Queries      : $DC_TOTAL ($DC_QPS/s)"
+        echo "Uptime       : $up"
+        echo "Avg Response : $DC_AVG ms"
+        if [ "$DC_CACHE" = true ]; then
+            echo "Cache Hits   : $DC_HITS ($DC_RATIO%)"
+            echo "Cache Misses : $DC_MISS"
+            echo "Cache Size   : $DC_ENTRIES of $DC_CAP entries"
+        else echo "Cache        : off"; fi
+        [ "${DC_BLOCKED:-0}" -gt 0 ] && echo "Blocked      : $DC_BLOCKED (its own blocklists)"
+        echo "------------------ Resolvers ----------------"
+    else
+        echo "Queries        : $DC_TOTAL  ($DC_QPS per second, up $up)"
+        echo "Avg Response   : $DC_AVG ms"
+        if [ "$DC_CACHE" = true ]; then echo "Cache          : $DC_HITS hits / $DC_MISS misses ($DC_RATIO%), $DC_ENTRIES of $DC_CAP entries"
+        else echo "Cache          : off"; fi
+        [ "${DC_BLOCKED:-0}" -gt 0 ] && echo "Blocked        : $DC_BLOCKED (dnscrypt-proxy's own blocklists)"
+    fi
+    printf '%s\n' "$DC_RES" | awk -v short="$([ "$1" = short ] && echo 1)" 'BEGIN { RS = "},?" }
+        /"name"/ {
+            n = $0; sub(/.*"name":"/, "", n); sub(/".*/, "", n); p = $0; sub(/.*"proto":"/, "", p); sub(/".*/, "", p)
+            a = $0; sub(/.*"avg_ms":/, "", a); sub(/,.*/, "", a); ok = $0; sub(/.*"success":/, "", ok); sub(/,.*/, "", ok)
+            st = $0; sub(/.*"status":"/, "", st); sub(/".*/, "", st); q = $0; sub(/.*"queries":/, "", q); sub(/,.*/, "", q)
+            if (a == "null") a = "--"
+            if (short) printf "%s\n   %-8s %8s ms  %s\n", n, p, a, st
+            else printf "  %-28s %-8s %8s ms  %5s%% ok  %-8s %s queries\n", n, p, a, ok, st, q
+        }'
 }
 
 print_json_report() {
@@ -1983,6 +2233,10 @@ print_json_report() {
         U_JSON="$U_JSON}"; JSTR="$JSTR$U_JSON"
     else JSTR="${JSTR}null"; fi
     
+    JSTR="$JSTR, \"dnscrypt_state\": \"${DC_STATE:-not_installed}\", \"dnscrypt_version\": \"${DC_VER}\", \"dnscrypt\": "
+    if [ "$HAS_DC" = true ]; then
+        JSTR="$JSTR{\"dc_queries\": $DC_TOTAL, \"qps\": $DC_QPS, \"uptime\": $DC_UPTIME, \"dc_avg_ms\": $DC_AVG, \"dc_hits\": $DC_HITS, \"dc_miss\": $DC_MISS, \"ratio\": $DC_RATIO, \"cache_enabled\": $DC_CACHE, \"entries\": $DC_ENTRIES, \"capacity\": $DC_CAP, \"blocked\": ${DC_BLOCKED:-0}, \"resolvers\": ${DC_RES:-[]}}"
+    else JSTR="${JSTR}null"; fi
     JSTR="$JSTR}"; echo "$JSTR"
 }
 
@@ -1999,7 +2253,9 @@ fi
 
 phls_mark setup
 collect_unbound_async & PID_UNB=$!
+collect_dnscrypt_async & PID_DC=$!
 collect_pihole_stats
+load_dnscrypt_results
 
 if [ "$SILENT_MODE" = false ] && [ "$SHOW_UNBOUND" != "only" ] && [ -n "$SPINNER_PID" ]; then stop_spinner; fi
 
@@ -2078,6 +2334,18 @@ if [ "$DASH_MODE" = true ] && [ "$DASH_HISTORY" = true ] && [ "$SHOW_UNBOUND" !=
     fi
     printf -v NOW_STR '%(%Y-%m-%d %H:%M:%S)T' -1
     printf -v NEW_ENTRY '{"version":"%s","date":"%s","average":%s,"median":%s,"p95":%s,"stddev":%s,"u_avg":%s,"u_std":%s,"u_med":%s,"u_p95":%s,"messages":%d,"rrsets":%d,"cache_mb_msg":%s,"cache_mb_rr":%s,"diff_hits":%d,"diff_miss":%d}' "$VERSION" "$NOW_STR" "$P_AVG" "$P_MED" "$P_95" "$P_STD" "${UP_STATS_ALL[0]:-0}" "${UP_STATS_ALL[1]:-0}" "${UP_STATS_ALL[2]:-0}" "${UP_STATS_ALL[3]:-0}" "${UCC_MSG:-0}" "${UCC_RR:-0}" "${U_MB_MSG:-0.00}" "${U_MB_RR:-0.00}" "$DIFF_HITS" "$DIFF_MISS"
+    # dnscrypt-proxy: its average response time as it reports it, and cache hits / misses since the last run
+    if [ "$HAS_DC" = true ]; then
+        DC_DH=0; DC_DM=0
+        if [[ "$PREV_SNAP" =~ \"dc_hits\":[[:space:]]*([0-9]+) ]]; then
+            P_DH="${BASH_REMATCH[1]}"
+            [[ "$PREV_SNAP" =~ \"dc_miss\":[[:space:]]*([0-9]+) ]] && P_DM="${BASH_REMATCH[1]}" || P_DM=0
+            DC_DH=$((DC_HITS - P_DH)); DC_DM=$((DC_MISS - P_DM))
+            # counters went down = dnscrypt-proxy restarted: everything since then is new
+            if [ "$DC_DH" -lt 0 ] || [ "$DC_DM" -lt 0 ]; then DC_DH=$DC_HITS; DC_DM=$DC_MISS; fi
+        fi
+        NEW_ENTRY="${NEW_ENTRY%\}},\"dc_avg\":$DC_AVG,\"dc_hits\":$DC_DH,\"dc_miss\":$DC_DM}"
+    fi
     [ -n "$UPHIST_JSON" ] && NEW_ENTRY="${NEW_ENTRY%\}},\"u_by\":$UPHIST_JSON}"
     mkdir -p "$(dirname "$HIST_PATH")"
     write_history "$NEW_ENTRY" "$HIST_PATH"
