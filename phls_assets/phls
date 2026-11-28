@@ -16,8 +16,8 @@
 # Internal: setup (used by the installer), apply (dashboard changes), check-update
 # Author: panoc - https://github.com/panoc/pihole-latency-stats - GPLv3
 # ==============================================================================
-PHLS_VERSION="5.0.2"
-PHLS_BUILD=""
+PHLS_VERSION="5.1.0"
+PHLS_BUILD="beta.1"
 
 SELF="$(readlink -f "${BASH_SOURCE[0]}")"
 SELF_DIR="$(dirname "$SELF")"
